@@ -1,3 +1,7 @@
 .devcontainer/
 
 build/
+bin/
+sdk/
+
+developer_key
