@@ -5,8 +5,9 @@ import Toybox.System;
 // Manages all Application.Storage reads and writes for session state and events.
 class PersistenceService {
 
-    private const SESSION_KEY = "active_session";
-    private const EVENTS_KEY  = "event_log";
+    private const SESSION_KEY          = "active_session";
+    private const EVENTS_KEY           = "event_log";
+    private const COMPANION_WORKOUT_KEY = "companion_workout";
 
     function initialize() {
     }
@@ -68,6 +69,37 @@ class PersistenceService {
     function clearEvents() as Void {
         Application.Storage.deleteValue(EVENTS_KEY);
         System.println("[Persist] Events cleared");
+    }
+
+    // Persists a companion workout as a raw Dictionary so it survives app restarts.
+    // The caller must pass the original Dictionary received from Communications
+    // (not a domain object) because Application.Storage only supports primitives,
+    // arrays, and dicts of primitives.
+    function saveCompanionWorkout(workoutDict as Dictionary) as Void {
+        Application.Storage.setValue(COMPANION_WORKOUT_KEY, workoutDict);
+        System.println("[Persist] Companion workout saved");
+    }
+
+    // Loads the last received companion workout Dictionary from storage.
+    // Returns null if no companion workout has been stored or the data is corrupt.
+    function loadCompanionWorkout() as Dictionary or Null {
+        var raw = Application.Storage.getValue(COMPANION_WORKOUT_KEY);
+        if (raw == null) {
+            System.println("[Persist] No companion workout found");
+            return null;
+        }
+        if (!(raw instanceof Dictionary)) {
+            System.println("[Persist] Corrupt companion workout data, ignoring");
+            return null;
+        }
+        System.println("[Persist] Companion workout loaded from storage");
+        return raw as Dictionary;
+    }
+
+    // Removes the companion workout from storage.
+    function clearCompanionWorkout() as Void {
+        Application.Storage.deleteValue(COMPANION_WORKOUT_KEY);
+        System.println("[Persist] Companion workout cleared");
     }
 
 }
