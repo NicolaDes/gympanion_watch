@@ -3,10 +3,23 @@ import Toybox.Lang;
 import Toybox.WatchUi;
 import Toybox.System;
 
+// NoOpConnectionListener: satisfies the Communications.transmit() requirement
+// for a non-null ConnectionListener. Used for fire-and-forget phone messages
+// where no acknowledgement is needed.
+class NoOpConnectionListener extends Communications.ConnectionListener {
+    function initialize() {
+        ConnectionListener.initialize();
+    }
+    function onComplete() as Void {}
+}
+
 // CompanionCommService: Manages phone-to-watch communication via the
 // Toybox.Communications API. Receives workout payloads from the companion
 // app, deserializes them into domain objects, persists them, and notifies
 // the WorkoutEngine to restart with the new workout.
+//
+// Also sends fire-and-forget set-complete notifications to the companion app
+// via sendSetComplete() so the phone can prompt for actual weight/reps logged.
 //
 // Call startListening() once during app startup (in onStart).
 // The system invokes onMessageReceived() whenever the companion app sends
@@ -15,10 +28,31 @@ class CompanionCommService {
 
     private var _engine as WorkoutEngine;
     private var _persistenceService as PersistenceService;
+    private var _listener as NoOpConnectionListener;
 
     function initialize(engine as WorkoutEngine, persistenceService as PersistenceService) {
         _engine = engine;
         _persistenceService = persistenceService;
+        _listener = new NoOpConnectionListener();
+    }
+
+    // Sends a fire-and-forget set-complete notification to the companion phone app.
+    // payload is a Dictionary with set metadata (exercise name, set/exercise indices,
+    // duration, target weight/reps). No response is expected.
+    //
+    // When no phone is connected (e.g. simulator without ADB) the payload is
+    // printed to the log instead of transmitted, avoiding the ADB error dialog.
+    function sendSetComplete(payload as Dictionary) as Void {
+        if (!(Communications has :transmit)) {
+            System.println("[Comm] transmit not available on this device");
+            return;
+        }
+        if (!System.getDeviceSettings().phoneConnected) {
+            System.println("[Comm] No phone — set_complete payload: " + payload.toString());
+            return;
+        }
+        Communications.transmit(payload, null, _listener);
+        System.println("[Comm] Set complete sent to phone");
     }
 
     // Registers the phone message listener with the Communications API.

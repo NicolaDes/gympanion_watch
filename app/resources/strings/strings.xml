@@ -6,9 +6,5 @@
     <string id="LabelWeight">Weight</string>
     <string id="LabelKg">kg</string>
     <string id="LabelHr">HR</string>
-    <string id="LabelLogSet">Log Set</string>
     <string id="LabelWorkoutComplete">Workout Complete</string>
-    <string id="LabelAdjustHint">UP/DOWN to adjust</string>
-    <string id="LabelConfirmHint">START to confirm</string>
-    <string id="LabelNextHint">START: next field</string>
 </strings>

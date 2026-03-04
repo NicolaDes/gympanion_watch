@@ -101,8 +101,8 @@ class WorkoutEngine {
         System.println("[Engine] startSet -> PHASE_WORK");
     }
 
-    // Called when the user confirms weight and reps in SetEditView.
-    // Records the set, advances the timeline, starts rest or finishes the workout.
+    // Called when a set is complete. Records the set, advances the timeline,
+    // starts rest or finishes the workout.
     function completeSet(weight as Float, reps as Number) as Void {
         if (_sessionState == null || _workout == null) { return; }
         var state = _sessionState;
@@ -132,7 +132,7 @@ class WorkoutEngine {
             "durationMs"    => state.timerValueMs
         });
 
-        // Update last-used values for default proposal in next SetEditView
+        // Update last-used values (retained for session persistence)
         state.lastWeight = weight;
         state.lastReps   = reps;
 
@@ -186,7 +186,7 @@ class WorkoutEngine {
         WatchUi.requestUpdate();
     }
 
-    // Called when user cancels SetEditView (BACK button). Returns to WORK phase.
+    // Cancels the current set and returns to WORK phase (restarts the work timer).
     function cancelSet() as Void {
         if (_sessionState == null) { return; }
         var state = _sessionState;
