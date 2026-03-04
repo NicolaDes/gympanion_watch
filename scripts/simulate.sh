@@ -9,13 +9,28 @@
 #   ./scripts/simulate.sh [device]
 #
 #   device  ConnectIQ device ID to compile for (default: fr265)
-#           Must match a directory in ~/.Garmin/ConnectIQ/Devices/ inside the container.
-#           Use fr265_sim only if you have downloaded that device definition via the SDK Manager.
+#           Must match a directory in ~/.Garmin/ConnectIQ/Devices/ inside the
+#           container. Use fr265_sim only if you have downloaded that device
+#           definition via the SDK Manager.
+#
+# Testing Communications without a phone (SDK 8.x):
+#
+#   Phone -> Watch (inject a workout):
+#     Use the simulator menu: File > Send Message to Device
+#     Paste the JSON from scripts/send-test-workout.sh and click Send.
+#
+#   Watch -> Phone (set_complete notifications):
+#     No companion simulator ships with SDK 8.x. When the watch app is running
+#     without a connected phone, outgoing payloads are printed to the simulator
+#     log (View > Show Log) instead of being transmitted.
+#     Full end-to-end testing requires ADB + an Android device running
+#     Garmin Connect: adb forward tcp:7381 tcp:7381
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+
 DEVICE="${1:-fr265}"
 
 # ── Step 1: X11 ───────────────────────────────────────────────────────────────
@@ -46,6 +61,7 @@ echo "  Found: $CONTAINER_NAME ($CONTAINER_ID)"
 # ── Step 3: Build + simulate inside the devcontainer ─────────────────────────
 echo "[3/3] Building for '$DEVICE' and launching simulator..."
 echo "      (Close the simulator window to exit)"
+echo "      Tip: File > Send Message to Device to inject a workout from the companion"
 echo ""
 
 docker exec \

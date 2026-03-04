@@ -50,6 +50,7 @@ docker run \
   --ipc host \
   --label "devcontainer.local_folder=$REPO_ROOT" \
   --volume "$REPO_ROOT/app:/workspace" \
+  --volume "$REPO_ROOT/.Garmin:/home/vscode/.Garmin" \
   --user vscode \
   "$IMAGE_NAME" \
   sleep infinity

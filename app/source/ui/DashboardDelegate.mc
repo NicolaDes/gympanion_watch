@@ -7,16 +7,18 @@ import Toybox.System;
 // depending on the current workout phase.
 class DashboardDelegate extends WatchUi.BehaviorDelegate {
 
-    private var _engine as WorkoutEngine;
+    private var _engine      as WorkoutEngine;
+    private var _commService as CompanionCommService;
 
-    function initialize(engine as WorkoutEngine) {
+    function initialize(engine as WorkoutEngine, commService as CompanionCommService) {
         BehaviorDelegate.initialize();
-        _engine = engine;
+        _engine      = engine;
+        _commService = commService;
     }
 
     // START/STOP button. Behavior depends on current phase:
     //   IDLE     -> start set (begin work phase)
-    //   WORK     -> done with set; push SetEditView to confirm weight/reps
+    //   WORK     -> set complete: auto-record with target values, notify phone, transition to REST
     //   REST     -> start next set early (user cuts rest short)
     //   FINISHED -> no action
     function onSelect() as Boolean {
@@ -28,8 +30,7 @@ class DashboardDelegate extends WatchUi.BehaviorDelegate {
         if (phase == PHASE_IDLE || phase == PHASE_REST) {
             _engine.startSet();
         } else if (phase == PHASE_WORK) {
-            // Pause timer and push set-edit screen
-            _engine.pause();
+            // Resolve the current exercise to get target weight/reps
             var workout = _engine.getWorkout();
             var exercise = null;
             if (workout != null && workout.exercises != null) {
@@ -39,19 +40,37 @@ class DashboardDelegate extends WatchUi.BehaviorDelegate {
                 }
             }
 
-            // Default weight/reps: last-used values, or exercise targets if first set
-            var defaultWeight = state.lastWeight;
-            var defaultReps   = state.lastReps;
-            if (defaultWeight <= 0.0f && exercise != null) {
-                defaultWeight = exercise.targetWeight;
-            }
-            if (defaultReps <= 0 && exercise != null) {
-                defaultReps = exercise.targetReps;
+            // Use target values from the exercise definition; default to 0 if unavailable
+            var targetWeight = 0.0f;
+            var targetReps   = 0;
+            var exerciseName = "";
+            var totalSets    = 0;
+            var totalExercises = (workout != null && workout.exercises != null)
+                ? workout.exercises.size()
+                : 0;
+
+            if (exercise != null) {
+                targetWeight  = exercise.targetWeight;
+                targetReps    = exercise.targetReps;
+                exerciseName  = exercise.name;
+                totalSets     = exercise.targetSets;
             }
 
-            var editView     = new SetEditView(_engine, defaultWeight, defaultReps);
-            var editDelegate = new SetEditDelegate(_engine, editView);
-            WatchUi.pushView(editView, editDelegate, WatchUi.SLIDE_UP);
+            // Build fire-and-forget phone notification payload
+            var payload = {
+                "type"           => "set_complete",
+                "exerciseName"   => exerciseName,
+                "exerciseIndex"  => state.currentExerciseIndex,
+                "totalExercises" => totalExercises,
+                "setIndex"       => state.currentSetIndex,
+                "totalSets"      => totalSets,
+                "durationMs"     => state.timerValueMs,
+                "targetWeight"   => targetWeight,
+                "targetReps"     => targetReps
+            };
+
+            _commService.sendSetComplete(payload);
+            _engine.completeSet(targetWeight, targetReps);
         }
         // PHASE_FINISHED: no action
         return true;

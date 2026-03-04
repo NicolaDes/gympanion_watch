@@ -83,7 +83,7 @@ class gympApp extends Application.AppBase {
     function getInitialView() as [Views] or [Views, InputDelegates] {
         return [
             new DashboardView(_engine),
-            new DashboardDelegate(_engine)
+            new DashboardDelegate(_engine, _commService)
         ];
     }
 
