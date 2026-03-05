@@ -79,12 +79,31 @@ class gympApp extends Application.AppBase {
         System.println("[App] onStop: session saved, timer stopped");
     }
 
-    // Returns the initial View + Delegate pair for the app.
+    // Returns the summary menu as the initial view.
+    // Lists "Start" plus each exercise by name; selecting any item
+    // starts the workout from that exercise and pushes the dashboard.
     function getInitialView() as [Views] or [Views, InputDelegates] {
-        return [
-            new DashboardView(_engine),
-            new DashboardDelegate(_engine, _commService)
-        ];
+        var workout = _engine.getWorkout();
+
+        var title = (workout != null) ? workout.name : "GymPanion";
+        var menu = new WatchUi.Menu2({:title => title});
+
+        // "Start" item — always starts from exercise 0
+        menu.addItem(new WatchUi.MenuItem(
+            WatchUi.loadResource(Rez.Strings.LabelStart) as String,
+            null, -1, {}
+        ));
+
+        // One item per exercise, in order
+        if (workout != null && workout.exercises != null) {
+            var exercises = workout.exercises;
+            for (var i = 0; i < exercises.size(); i++) {
+                var ex = exercises[i] as Exercise;
+                menu.addItem(new WatchUi.MenuItem(ex.name, null, i, {}));
+            }
+        }
+
+        return [menu, new WorkoutSummaryDelegate(_engine, _commService)];
     }
 
 }

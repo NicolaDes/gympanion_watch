@@ -16,6 +16,7 @@ class WorkoutEngine {
     private var _eventRecorder   as EventRecorder;
     private var _persistenceService as PersistenceService;
     private var _workoutStarted  as Boolean;
+    private var _onFinished      as Method or Null;
 
     function initialize(
         timerService     as TimerService,
@@ -31,11 +32,32 @@ class WorkoutEngine {
         _workout            = null;
         _sessionState       = null;
         _workoutStarted     = false;
+        _onFinished         = null;
     }
 
     // Called once at boot with the loaded workout plan.
     function setWorkout(workout as Workout) as Void {
         _workout = workout;
+    }
+
+    // Registers a callback to invoke when the workout transitions to PHASE_FINISHED.
+    // Used by DashboardDelegate to trigger the 3-second auto-return to summary.
+    function setOnFinished(callback as Method) as Void {
+        _onFinished = callback;
+    }
+
+    // Resets the session to start from the given exercise index.
+    // Called when the user selects an exercise (or "Start") from the summary menu.
+    function startFromExercise(exerciseIndex as Number) as Void {
+        if (_workout == null) { return; }
+        _timerService.stop();
+        _persistenceService.clearSession();
+        var sessionId = "session_" + Time.now().value().toString();
+        _sessionState = new SessionState(sessionId, _workout.id);
+        _sessionState.currentExerciseIndex = exerciseIndex;
+        _workoutStarted = false;
+        System.println("[Engine] startFromExercise(" + exerciseIndex + ")");
+        WatchUi.requestUpdate();
     }
 
     // Creates a fresh session for the given workout. Resets all state to IDLE.
@@ -150,6 +172,9 @@ class WorkoutEngine {
             });
             _persistenceService.saveSession(state);
             System.println("[Engine] Workout FINISHED");
+            if (_onFinished != null) {
+                _onFinished.invoke();
+            }
         } else {
             // Start rest
             var nextExerciseIndex = result["exerciseIndex"];

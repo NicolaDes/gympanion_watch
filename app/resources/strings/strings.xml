@@ -8,4 +8,5 @@
     <string id="LabelHr">HR</string>
     <string id="LabelWorkoutComplete">Workout Complete</string>
     <string id="exitConfirmMsg">Exit GymPanion?</string>
+    <string id="LabelStart">Start</string>
 </strings>

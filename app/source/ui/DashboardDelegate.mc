@@ -1,6 +1,7 @@
 import Toybox.Lang;
 import Toybox.WatchUi;
 import Toybox.System;
+import Toybox.Timer;
 
 // DashboardDelegate: handles all button input on the main workout dashboard.
 // Phase-aware routing: the same START button does different things
@@ -9,11 +10,14 @@ class DashboardDelegate extends WatchUi.BehaviorDelegate {
 
     private var _engine      as WorkoutEngine;
     private var _commService as CompanionCommService;
+    private var _finishTimer as Timer.Timer or Null;
 
     function initialize(engine as WorkoutEngine, commService as CompanionCommService) {
         BehaviorDelegate.initialize();
         _engine      = engine;
         _commService = commService;
+        _finishTimer = null;
+        _engine.setOnFinished(method(:_onWorkoutFinished));
     }
 
     // START/STOP button. Behavior depends on current phase:
@@ -90,6 +94,20 @@ class DashboardDelegate extends WatchUi.BehaviorDelegate {
     // Long-press UP. Reserved for future menu use. No-op in skeleton.
     function onMenu() as Boolean {
         return true;
+    }
+
+    // Called by WorkoutEngine when the workout transitions to PHASE_FINISHED.
+    // Starts a one-shot timer to auto-pop the dashboard after showing DONE.
+    function _onWorkoutFinished() as Void {
+        _finishTimer = new Timer.Timer();
+        _finishTimer.start(method(:_onFinishTimerExpired), 3000, false);
+    }
+
+    // Called 3 seconds after workout completion. Pops the dashboard to reveal
+    // the workout summary menu beneath it.
+    function _onFinishTimerExpired() as Void {
+        _finishTimer = null;
+        WatchUi.popView(WatchUi.SLIDE_DOWN);
     }
 
 }
