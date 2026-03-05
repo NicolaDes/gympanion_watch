@@ -11,6 +11,9 @@ class NoOpConnectionListener extends Communications.ConnectionListener {
         ConnectionListener.initialize();
     }
     function onComplete() as Void {}
+    function onError() as Void {
+        System.println("[Comm] transmit error (no phone or companion protocol mismatch)");
+    }
 }
 
 // CompanionCommService: Manages phone-to-watch communication via the

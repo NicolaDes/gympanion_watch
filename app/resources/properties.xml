@@ -1,0 +1,7 @@
+<properties>
+    <!-- Set to true only when running on a real device with Garmin Connect paired.
+         Communications.transmit() crashes the SDK 8.4.1 simulator, so this
+         defaults to false for safe development. Set_complete events are visible
+         in the simulator via View > Show Log when this is false. -->
+    <property id="enablePhoneTransmit" type="boolean">false</property>
+</properties>
