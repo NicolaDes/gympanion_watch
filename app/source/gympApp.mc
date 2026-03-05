@@ -71,12 +71,40 @@ class gympApp extends Application.AppBase {
         // Register companion message listener (called in onStart, not initialize,
         // because the Communications module may not be ready during AppBase.initialize).
         _commService.startListening();
+
+        // Register the summary rebuild callback so CommService can trigger it after accept
+        _commService.setOnWorkoutAccepted(method(:onWorkoutAccepted));
     }
 
     // onStop() is called when the app is exiting. Persist and clean up.
     function onStop(state as Dictionary?) as Void {
         _engine.pause();
         System.println("[App] onStop: session saved, timer stopped");
+    }
+
+    // Called by CompanionCommService after a pending workout is accepted.
+    // Rebuilds the summary menu with the new workout and switches to it,
+    // replacing the stale menu that was built at app start.
+    function onWorkoutAccepted() as Void {
+        var workout = _engine.getWorkout();
+        var title = (workout != null) ? workout.name : "GymPanion";
+        var menu = new WatchUi.Menu2({:title => title});
+
+        menu.addItem(new WatchUi.MenuItem(
+            WatchUi.loadResource(Rez.Strings.LabelStart) as String,
+            null, -1, {}
+        ));
+
+        if (workout != null && workout.exercises != null) {
+            var exercises = workout.exercises;
+            for (var i = 0; i < exercises.size(); i++) {
+                var ex = exercises[i] as Exercise;
+                menu.addItem(new WatchUi.MenuItem(ex.name, null, i, {}));
+            }
+        }
+
+        WatchUi.switchToView(menu, new WorkoutSummaryDelegate(_engine, _commService), WatchUi.SLIDE_IMMEDIATE);
+        System.println("[App] Summary menu rebuilt for new workout");
     }
 
     // Returns the summary menu as the initial view.
