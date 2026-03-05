@@ -76,21 +76,14 @@ class DashboardDelegate extends WatchUi.BehaviorDelegate {
         return true;
     }
 
-    // BACK button.
-    //   IDLE / FINISHED -> clear saved session and start a fresh one (stay in app)
-    //   WORK / REST     -> swallowed to prevent accidental exit mid-workout
+    // BACK button: always shows an exit confirmation dialog.
+    // Yes -> persists session and exits the app.
+    // No  -> dialog is dismissed by the system; returns to dashboard.
     function onBack() as Boolean {
-        var state = _engine.getCurrentState();
-        if (state == null) {
-            _engine.resetSession();
-            return true;
-        }
-
-        var phase = state.phase;
-        if (phase == PHASE_IDLE || phase == PHASE_FINISHED) {
-            _engine.resetSession();
-        }
-        // During WORK or REST: swallow to prevent accidental exit
+        var dialog = new WatchUi.Confirmation(
+            WatchUi.loadResource(Rez.Strings.exitConfirmMsg) as String
+        );
+        WatchUi.pushView(dialog, new ExitConfirmDelegate(_engine), WatchUi.SLIDE_IMMEDIATE);
         return true;
     }
 
