@@ -60,8 +60,13 @@ class CompanionCommService {
             System.println("[Comm] No phone — set_complete payload: " + payload.toString());
             return;
         }
-        Communications.transmit(payload, null, _listener);
-        System.println("[Comm] Set complete sent to phone");
+        System.println("[Comm] set_complete payload: " + payload.toString());
+        try {
+            Communications.transmit(payload, null, _listener);
+            System.println("[Comm] Set complete sent to phone");
+        } catch (e instanceof Lang.Exception) {
+            System.println("[Comm] transmit failed: " + e.getErrorMessage());
+        }
     }
 
     // Registers the phone message listener with the Communications API.
@@ -165,8 +170,12 @@ class CompanionCommService {
             System.println("[Comm] No phone — workout_replace_response: " + payload.toString());
             return;
         }
-        Communications.transmit(payload, null, _listener);
-        System.println("[Comm] workout_replace_response sent: accepted=" + accepted.toString());
+        try {
+            Communications.transmit(payload, null, _listener);
+            System.println("[Comm] workout_replace_response sent: accepted=" + accepted.toString());
+        } catch (e instanceof Lang.Exception) {
+            System.println("[Comm] transmit failed: " + e.getErrorMessage());
+        }
     }
 
     // Deserializes a raw Dictionary payload (from Communications or Storage)

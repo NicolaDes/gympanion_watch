@@ -1,17 +1,13 @@
 #!/bin/bash
-# simulate.sh — Build the GymPanion app and launch it in the Garmin simulator.
+# simulate.sh — Launch the Garmin simulator and load the compiled app.
 #
+# Requires: app/bin/workspace.prg must already exist (run build.sh first).
 # Requires: the project must be open in VS Code with "Reopen in Container".
-# The script finds the running devcontainer and runs the build + simulator
-# inside it via docker exec.
 #
 # Usage:
 #   ./scripts/simulate.sh [device]
 #
-#   device  ConnectIQ device ID to compile for (default: fr265)
-#           Must match a directory in ~/.Garmin/ConnectIQ/Devices/ inside the
-#           container. Use fr265_sim only if you have downloaded that device
-#           definition via the SDK Manager.
+#   device  ConnectIQ device ID to load the app for (default: fr265)
 #
 # Testing Communications without a phone (SDK 8.x):
 #
@@ -40,7 +36,6 @@ echo "[1/3] Allowing X11 access to Docker..."
 # ── Step 2: Find the running devcontainer ─────────────────────────────────────
 echo "[2/3] Locating devcontainer..."
 
-# VS Code labels every devcontainer with devcontainer.local_folder=<project root>
 CONTAINER_ID=$(docker ps \
   --filter "label=devcontainer.local_folder=$REPO_ROOT" \
   --format "{{.ID}}" | head -1)
@@ -58,8 +53,8 @@ fi
 CONTAINER_NAME=$(docker ps --filter "id=$CONTAINER_ID" --format "{{.Names}}")
 echo "  Found: $CONTAINER_NAME ($CONTAINER_ID)"
 
-# ── Step 3: Build + simulate inside the devcontainer ─────────────────────────
-echo "[3/3] Building for '$DEVICE' and launching simulator..."
+# ── Step 3: Launch simulator and load app ────────────────────────────────────
+echo "[3/3] Launching simulator for '$DEVICE'..."
 echo "      (Close the simulator window to exit)"
 echo "      Tip: File > Send Message to Device to inject a workout from the companion"
 echo ""
@@ -70,7 +65,6 @@ docker exec \
   bash -c "
     set -e
 
-    # Find the latest installed SDK version
     MONKEYBRAINS=\$(ls ~/.Garmin/ConnectIQ/Sdks/*/bin/monkeybrains.jar 2>/dev/null | sort -V | tail -1)
 
     if [[ -z \"\$MONKEYBRAINS\" ]]; then
@@ -83,21 +77,14 @@ docker exec \
     fi
 
     SDK_BIN=\"\$(dirname \"\$MONKEYBRAINS\")\"
-    SDK_NAME=\"\$(basename \"\$(dirname \"\$SDK_BIN\")\")\"
-    echo \"--> SDK: \$SDK_NAME\"
 
-    echo '--> Compiling...'
-    mkdir -p /workspace/bin
-    java -Xms1g \
-      -Dfile.encoding=UTF-8 \
-      -Dapple.awt.UIElement=true \
-      -jar \"\$MONKEYBRAINS\" \
-      -o /workspace/bin/workspace.prg \
-      -f /workspace/monkey.jungle \
-      -y /workspace/developer_key \
-      -d ${DEVICE} \
-      -w
-    echo '--> Build OK: bin/workspace.prg'
+    if [[ ! -f /workspace/bin/workspace.prg ]]; then
+      echo ''
+      echo '  ERROR: bin/workspace.prg not found. Run build.sh first:'
+      echo '    ./scripts/build.sh'
+      echo ''
+      exit 1
+    fi
 
     echo '--> Starting simulator...'
     \"\$SDK_BIN/connectiq\" &
