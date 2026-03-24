@@ -22,7 +22,7 @@ class gympApp extends Application.AppBase {
         // Create services in dependency order
         _persistenceService = new PersistenceService();
         _eventRecorder      = new EventRecorder(_persistenceService);
-        _provider           = new MockPhysiologicalProvider();
+        _provider           = new RealPhysiologicalProvider();
         _samplingEngine     = new SamplingEngine(_provider, _eventRecorder);
         _timerService       = new TimerService();
         _engine             = new WorkoutEngine(
