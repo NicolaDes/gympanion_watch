@@ -171,7 +171,8 @@ class WorkoutEngine {
                 "totalDurationMs" => nowTs - state.startTimestamp
             });
             _persistenceService.saveSession(state);
-            System.println("[Engine] Workout FINISHED");
+            _persistenceService.clearEvents();
+            System.println("[Engine] Workout FINISHED (events cleared)");
             if (_onFinished != null) {
                 _onFinished.invoke();
             }

@@ -4,8 +4,11 @@
 build/
 bin/
 sdk/
+.vscode/
+*.iq
 
 developer_key
 
 .todos/
 .claude/
+*.DS_Store

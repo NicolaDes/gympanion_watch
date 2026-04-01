@@ -43,7 +43,11 @@ class PersistenceService {
         System.println("[Persist] Session cleared");
     }
 
+    private const MAX_EVENTS = 500;
+
     // Appends new events to the stored event log (read-modify-write).
+    // Caps at MAX_EVENTS to prevent unbounded storage growth that
+    // would exhaust the watch's ~128KB memory budget.
     function saveEvents(events as Array) as Void {
         var raw = Application.Storage.getValue(EVENTS_KEY);
         var existing = new [0];
@@ -52,6 +56,11 @@ class PersistenceService {
         }
         for (var i = 0; i < events.size(); i++) {
             existing.add(events[i]);
+        }
+        // Trim to newest MAX_EVENTS if over the cap
+        if (existing.size() > MAX_EVENTS) {
+            var trimmed = existing.slice(existing.size() - MAX_EVENTS, null);
+            existing = trimmed;
         }
         Application.Storage.setValue(EVENTS_KEY, existing);
     }
