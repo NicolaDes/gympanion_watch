@@ -17,7 +17,12 @@ class StaticWorkoutLoader {
             new Exercise("Squat",       4, 8,  80.0f, 120),
             new Exercise("Deadlift",    3, 5,  100.0f, 150)
         ];
-        return new Workout("default_workout", "Default Workout", exercises);
+
+        // Wrap in a sequential block for v2 compatibility
+        var block = new WorkoutBlock(BLOCK_SEQUENTIAL, "Default");
+        block.exercises = exercises;
+
+        return new Workout("default_workout", "Default Workout", [block], exercises);
     }
 
 }

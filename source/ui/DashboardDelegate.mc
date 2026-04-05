@@ -60,6 +60,17 @@ class DashboardDelegate extends WatchUi.BehaviorDelegate {
                 totalSets     = exercise.targetSets;
             }
 
+            // Override with per-set BlockSet values (v2)
+            var blockSet = _engine.getCurrentBlockSet();
+            if (blockSet != null) {
+                if (blockSet.wKg != null) { targetWeight = blockSet.wKg; }
+                if (blockSet.reps != null) { targetReps = blockSet.reps; }
+                exerciseName = blockSet.name;
+            }
+            if (exercise != null && exercise.sets != null) {
+                totalSets = exercise.sets.size();
+            }
+
             // Build fire-and-forget phone notification payload
             var payload = {
                 "type"           => "set_complete",
@@ -97,8 +108,14 @@ class DashboardDelegate extends WatchUi.BehaviorDelegate {
     }
 
     // Called by WorkoutEngine when the workout transitions to PHASE_FINISHED.
-    // Starts a one-shot timer to auto-pop the dashboard after showing DONE.
+    // Transmits session result to phone, then starts auto-pop timer.
     function _onWorkoutFinished() as Void {
+        // Transmit session result to phone
+        var resultPayload = _engine.getSessionResultPayload();
+        if (resultPayload != null) {
+            _commService.sendSetComplete(resultPayload);
+        }
+
         _finishTimer = new Timer.Timer();
         _finishTimer.start(method(:_onFinishTimerExpired), 3000, false);
     }

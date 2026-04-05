@@ -2,6 +2,7 @@ import Toybox.Lang;
 
 // Sequential workout strategy: completes all sets of each exercise in order,
 // then advances to the next exercise. Finishes when all exercises are done.
+// Supports both v1 (uniform targetSets) and v2 (per-set BlockSet arrays).
 class SequentialStrategy extends TimelineStrategy {
 
     function initialize() {
@@ -13,23 +14,38 @@ class SequentialStrategy extends TimelineStrategy {
         var exerciseIndex = sessionState.currentExerciseIndex;
         var setIndex      = sessionState.currentSetIndex;
 
-        var exercises = workout.exercises;
+        // Get exercises from current block
+        var block = null;
+        var blocks = workout.blocks;
+        if (blocks != null && sessionState.currentBlockIndex < blocks.size()) {
+            block = blocks[sessionState.currentBlockIndex] as WorkoutBlock;
+        }
+
+        var exercises;
+        if (block != null && block.type == BLOCK_SEQUENTIAL && block.exercises != null) {
+            exercises = block.exercises;
+        } else {
+            exercises = workout.exercises;
+        }
+
         if (exercises == null || exercises.size() == 0) {
             return { "exerciseIndex" => 0, "setIndex" => 0, "finished" => true };
         }
 
         var currentExercise = exercises[exerciseIndex] as Exercise;
-
-        // Advance to the next set
         setIndex = setIndex + 1;
 
-        // Check if all sets of the current exercise are done
-        if (setIndex >= currentExercise.targetSets) {
+        // Determine total sets: use BlockSet array size if available, else targetSets
+        var totalSets = currentExercise.targetSets;
+        if (currentExercise.sets != null) {
+            totalSets = currentExercise.sets.size();
+        }
+
+        if (setIndex >= totalSets) {
             setIndex = 0;
             exerciseIndex = exerciseIndex + 1;
         }
 
-        // Check if all exercises are done
         if (exerciseIndex >= exercises.size()) {
             return {
                 "exerciseIndex" => exerciseIndex,

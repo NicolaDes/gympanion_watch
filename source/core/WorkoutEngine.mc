@@ -15,6 +15,7 @@ class WorkoutEngine {
     private var _samplingEngine  as SamplingEngine;
     private var _eventRecorder   as EventRecorder;
     private var _persistenceService as PersistenceService;
+    private var _resultSerializer as SessionResultSerializer;
     private var _workoutStarted  as Boolean;
     private var _onFinished      as Method or Null;
 
@@ -29,6 +30,7 @@ class WorkoutEngine {
         _eventRecorder      = eventRecorder;
         _persistenceService = persistenceService;
         _strategy           = new SequentialStrategy();
+        _resultSerializer   = new SessionResultSerializer();
         _workout            = null;
         _sessionState       = null;
         _workoutStarted     = false;
@@ -82,6 +84,29 @@ class WorkoutEngine {
         System.println("[Engine] Session restored, phase -> IDLE");
     }
 
+    // Returns the current block, or null
+    function getCurrentBlock() as WorkoutBlock or Null {
+        if (_workout == null || _sessionState == null) { return null; }
+        var blocks = _workout.blocks;
+        if (blocks == null || _sessionState.currentBlockIndex >= blocks.size()) { return null; }
+        return blocks[_sessionState.currentBlockIndex] as WorkoutBlock;
+    }
+
+    // Returns the current BlockSet for sequential blocks, or null
+    function getCurrentBlockSet() as BlockSet or Null {
+        var block = getCurrentBlock();
+        if (block == null || block.type != BLOCK_SEQUENTIAL) { return null; }
+        var exercises = block.exercises;
+        if (exercises == null || _sessionState == null) { return null; }
+        var exIdx = _sessionState.currentExerciseIndex;
+        if (exIdx >= exercises.size()) { return null; }
+        var ex = exercises[exIdx] as Exercise;
+        if (ex.sets == null) { return null; }
+        var setIdx = _sessionState.currentSetIndex;
+        if (setIdx >= ex.sets.size()) { return null; }
+        return ex.sets[setIdx] as BlockSet;
+    }
+
     // Transitions from IDLE or REST to WORK phase. Starts the work timer.
     function startSet() as Void {
         if (_sessionState == null || _workout == null) { return; }
@@ -131,16 +156,19 @@ class WorkoutEngine {
 
         // Finalize sampling
         var avgHr = _samplingEngine.finalizeSet();
+        var peakHr = _samplingEngine.getPeakHr();
         var nowTs = Time.now().value();
 
         // Record completed set in sessionState
         var setRecord = {
-            "ei" => state.currentExerciseIndex,
-            "si" => state.currentSetIndex,
-            "w"  => weight,
-            "r"  => reps,
-            "hr" => avgHr != null ? avgHr : -1,
-            "ts" => nowTs
+            "ei"     => state.currentExerciseIndex,
+            "si"     => state.currentSetIndex,
+            "w"      => weight,
+            "r"      => reps,
+            "hr"     => avgHr != null ? avgHr : -1,
+            "peakHr" => peakHr,
+            "durMs"  => state.timerValueMs,
+            "ts"     => nowTs
         };
         state.completedSets.add(setRecord);
 
@@ -151,6 +179,7 @@ class WorkoutEngine {
             "weight"        => weight,
             "reps"          => reps,
             "avgHeartRate"  => avgHr != null ? avgHr : -1,
+            "peakHeartRate" => peakHr,
             "durationMs"    => state.timerValueMs
         });
 
@@ -163,6 +192,17 @@ class WorkoutEngine {
         var finished = result["finished"];
 
         if (finished) {
+            // Build and store sequential block result before finishing
+            var block = getCurrentBlock();
+            if (block != null && block.type == BLOCK_SEQUENTIAL && block.exercises != null) {
+                var blockResult = _resultSerializer.serializeSequentialBlockResult(
+                    state.currentBlockIndex,
+                    block.exercises,
+                    state.completedSets
+                );
+                state.blockResults.add(blockResult);
+            }
+
             // Workout complete
             _timerService.stop();
             state.phase = PHASE_FINISHED;
@@ -185,10 +225,14 @@ class WorkoutEngine {
 
             var exercises = _workout.exercises;
             // Determine which exercise's rest duration to use (the one just completed)
-            // Find the exercise we just did (before the index advanced)
             var completedExerciseIndex = setRecord["ei"];
             var restDurationSec = 90; // fallback default
-            if (exercises != null && completedExerciseIndex < exercises.size()) {
+
+            // Try per-set rest from BlockSet first (v2)
+            var blockSet = getCurrentBlockSet();
+            if (blockSet != null && blockSet.restSec != null) {
+                restDurationSec = blockSet.restSec;
+            } else if (exercises != null && completedExerciseIndex < exercises.size()) {
                 var completedExercise = exercises[completedExerciseIndex] as Exercise;
                 restDurationSec = completedExercise.restDurationSec;
             }
@@ -210,6 +254,12 @@ class WorkoutEngine {
         }
 
         WatchUi.requestUpdate();
+    }
+
+    // Builds the session result payload for transmission to the phone.
+    function getSessionResultPayload() as Dictionary or Null {
+        if (_sessionState == null || _workout == null) { return null; }
+        return _resultSerializer.serialize(_sessionState, _workout);
     }
 
     // Cancels the current set and returns to WORK phase (restarts the work timer).
