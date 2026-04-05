@@ -11,6 +11,7 @@ class SamplingEngine {
     private var _snapshots     as Array;
     private var _hrSum         as Number;
     private var _hrCount       as Number;
+    private var _hrPeak        as Number;
     private var _tickCount     as Number;
 
     // Emit a MetricSampled event every N ticks (every 5 seconds)
@@ -22,6 +23,7 @@ class SamplingEngine {
         _snapshots     = new [0];
         _hrSum         = 0;
         _hrCount       = 0;
+        _hrPeak        = 0;
         _tickCount     = 0;
     }
 
@@ -30,6 +32,7 @@ class SamplingEngine {
         _snapshots = new [0];
         _hrSum     = 0;
         _hrCount   = 0;
+        _hrPeak    = 0;
         _tickCount = 0;
     }
 
@@ -45,6 +48,9 @@ class SamplingEngine {
         if (hr != null) {
             _hrSum   = _hrSum + hr;
             _hrCount = _hrCount + 1;
+            if (hr > _hrPeak) {
+                _hrPeak = hr;
+            }
         }
 
         _tickCount = _tickCount + 1;
@@ -60,6 +66,12 @@ class SamplingEngine {
         }
     }
 
+    // Returns the peak heart rate recorded during the current set.
+    // Returns 0 if no heart rate data was collected.
+    function getPeakHr() as Number {
+        return _hrPeak;
+    }
+
     // Computes and returns the average heart rate for the current set.
     // Clears the buffer. Returns null if no heart rate data was collected.
     function finalizeSet() as Number or Null {
@@ -70,6 +82,7 @@ class SamplingEngine {
         _snapshots = new [0];
         _hrSum     = 0;
         _hrCount   = 0;
+        _hrPeak    = 0;
         _tickCount = 0;
         return avg;
     }

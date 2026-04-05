@@ -80,6 +80,17 @@ class DashboardView extends WatchUi.View {
         var totalSets    = exercise != null ? exercise.targetSets   : 0;
         var setNum       = state.currentSetIndex + 1; // 1-based
 
+        // Override display values from per-set BlockSet if available (v2)
+        var currentBlockSet = _engine.getCurrentBlockSet();
+        if (currentBlockSet != null) {
+            if (currentBlockSet.reps != null) { targetReps = currentBlockSet.reps; }
+            if (currentBlockSet.wKg != null) { targetWeight = currentBlockSet.wKg; }
+        }
+        // Use BlockSet array size for totalSets if v2
+        if (exercise != null && exercise.sets != null) {
+            totalSets = exercise.sets.size();
+        }
+
         var leftX  = screenW / 4;
         var rightX = (screenW * 3) / 4;
 

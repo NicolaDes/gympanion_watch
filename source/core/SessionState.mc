@@ -23,6 +23,15 @@ class SessionState {
     var startTimestamp as Number;
     var restAlertFired as Boolean;
 
+    // Block-aware fields (v2)
+    var currentBlockIndex as Number;
+    var blockResults as Array;         // Array of result Dictionaries, one per block
+    var currentRoundIndex as Number;   // For EMOM: which round; For AMRAP: current round count
+    var roundStartTimestamp as Number;  // For EMOM: when the current round started
+    var blockStartTimestamp as Number;  // When the current block started
+    var amrapRoundsCompleted as Number;
+    var amrapPartialReps as Number;
+
     function initialize(sessionId as String, workoutId as String) {
         self.sessionId = sessionId;
         self.workoutId = workoutId;
@@ -36,6 +45,15 @@ class SessionState {
         self.lastReps = 0;
         self.startTimestamp = Time.now().value();
         self.restAlertFired = false;
+
+        // Block-aware defaults
+        self.currentBlockIndex = 0;
+        self.blockResults = new [0];
+        self.currentRoundIndex = 0;
+        self.roundStartTimestamp = 0;
+        self.blockStartTimestamp = 0;
+        self.amrapRoundsCompleted = 0;
+        self.amrapPartialReps = 0;
     }
 
     // Serialize to a Dictionary for Application.Storage
@@ -55,7 +73,14 @@ class SessionState {
             "cst" => setsArray,
             "lw"  => self.lastWeight,
             "lr"  => self.lastReps,
-            "sts" => self.startTimestamp
+            "sts" => self.startTimestamp,
+            "cbi" => self.currentBlockIndex,
+            "brs" => self.blockResults,
+            "cri" => self.currentRoundIndex,
+            "rst" => self.roundStartTimestamp,
+            "bst" => self.blockStartTimestamp,
+            "arc" => self.amrapRoundsCompleted,
+            "apr" => self.amrapPartialReps
         };
     }
 
@@ -94,6 +119,29 @@ class SessionState {
                 if (entry != null) {
                     state.completedSets.add(entry);
                 }
+            }
+        }
+
+        // Restore block-aware fields
+        var cbi = dict["cbi"];
+        var brs = dict["brs"];
+        var cri = dict["cri"];
+        var rst = dict["rst"];
+        var bst = dict["bst"];
+        var arc = dict["arc"];
+        var apr = dict["apr"];
+
+        if (cbi != null) { state.currentBlockIndex = cbi; }
+        if (cri != null) { state.currentRoundIndex = cri; }
+        if (rst != null) { state.roundStartTimestamp = rst; }
+        if (bst != null) { state.blockStartTimestamp = bst; }
+        if (arc != null) { state.amrapRoundsCompleted = arc; }
+        if (apr != null) { state.amrapPartialReps = apr; }
+
+        if (brs != null && brs instanceof Array) {
+            var arr = brs as Array;
+            for (var i = 0; i < arr.size(); i++) {
+                if (arr[i] != null) { state.blockResults.add(arr[i]); }
             }
         }
 
