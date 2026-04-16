@@ -16,14 +16,14 @@ class WorkoutSummaryDelegate extends WatchUi.Menu2InputDelegate {
     }
 
     // Called when the user selects a menu item.
-    // Item id -1 means "Start" (exercise 0); id >= 0 means that exercise index.
+    // Item id -1 means "Start" (block 0); id >= 0 means that block index.
     function onSelect(item as WatchUi.MenuItem) as Void {
         var id = item.getId();
-        var startIndex = 0;
+        var startBlockIndex = 0;
         if (id instanceof Number && (id as Number) >= 0) {
-            startIndex = id as Number;
+            startBlockIndex = id as Number;
         }
-        _engine.startFromExercise(startIndex);
+        _engine.startFromBlock(startBlockIndex);
         WatchUi.pushView(
             new DashboardView(_engine),
             new DashboardDelegate(_engine, _commService),

@@ -3,10 +3,11 @@ import Toybox.Time;
 
 // Phase constants defined at module scope so any file can use them
 // without needing an instance of SessionState.
-const PHASE_IDLE     = 0;
-const PHASE_WORK     = 1;
-const PHASE_REST     = 2;
-const PHASE_FINISHED = 3;
+const PHASE_IDLE           = 0;
+const PHASE_WORK           = 1;
+const PHASE_REST           = 2;
+const PHASE_FINISHED       = 3;
+const PHASE_BLOCK_COMPLETE = 4;
 
 class SessionState {
 

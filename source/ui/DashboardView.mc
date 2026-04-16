@@ -45,11 +45,10 @@ class DashboardView extends WatchUi.View {
         var screenH = dc.getHeight();
         var centerX = screenW / 2;
 
-        // Clear background — pure AMOLED black
+        // Clear background
         dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_BLACK);
         dc.clear();
 
-        // ── Idle / uninitialised ─────────────────────────────────────────────
         if (state == null || workout == null) {
             dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
             dc.drawText(centerX, screenH / 2, Graphics.FONT_MEDIUM,
@@ -60,85 +59,91 @@ class DashboardView extends WatchUi.View {
 
         var phase = state.phase;
 
-        // ── Finished screen ──────────────────────────────────────────────────
         if (phase == PHASE_FINISHED) {
             _drawFinishedScreen(dc, state, screenW, screenH, centerX);
             return;
         }
 
-        // ── Resolve current exercise (guard against out-of-bounds) ───────────
-        var exercises = workout.exercises;
-        var exIndex   = state.currentExerciseIndex;
-        var exercise  = null;
-        if (exercises != null && exIndex < exercises.size()) {
-            exercise = exercises[exIndex] as Exercise;
+        if (phase == PHASE_BLOCK_COMPLETE) {
+            _drawBlockCompleteScreen(dc, state, workout, screenW, screenH, centerX);
+            return;
         }
 
-        var exerciseName = exercise != null ? exercise.name         : "---";
-        var targetReps   = exercise != null ? exercise.targetReps   : 0;
-        var targetWeight = exercise != null ? exercise.targetWeight : 0.0f;
-        var totalSets    = exercise != null ? exercise.targetSets   : 0;
-        var setNum       = state.currentSetIndex + 1; // 1-based
+        // Resolve current block
+        var block = _engine.getCurrentBlock();
+        if (block == null) { return; }
 
-        // Override display values from per-set BlockSet if available (v2)
-        var currentBlockSet = _engine.getCurrentBlockSet();
-        if (currentBlockSet != null) {
-            if (currentBlockSet.reps != null) { targetReps = currentBlockSet.reps; }
-            if (currentBlockSet.wKg != null) { targetWeight = currentBlockSet.wKg; }
+        if (block.type == BLOCK_EMOM) {
+            _drawEmomDashboard(dc, state, block, screenW, screenH, centerX);
+        } else if (block.type == BLOCK_AMRAP) {
+            _drawAmrapDashboard(dc, state, block, screenW, screenH, centerX);
+        } else {
+            _drawSequentialDashboard(dc, state, screenW, screenH, centerX);
         }
-        // Use BlockSet array size for totalSets if v2
-        if (exercise != null && exercise.sets != null) {
-            totalSets = exercise.sets.size();
+    }
+
+    // ── Block Complete interstitial ─────────────────────────────────────
+    private function _drawBlockCompleteScreen(dc as Graphics.Dc, state as SessionState,
+                                               workout as Workout,
+                                               screenW as Number, screenH as Number,
+                                               centerX as Number) as Void {
+        var hLarge = dc.getFontHeight(Graphics.FONT_LARGE);
+        var hSmall = dc.getFontHeight(Graphics.FONT_SMALL);
+        var hXtiny = dc.getFontHeight(Graphics.FONT_XTINY);
+        var gap = 8;
+
+        // "BLOCK DONE" title
+        var totalH = hLarge + gap + hSmall + gap + hXtiny;
+        var y = screenH / 2 - totalH / 2;
+
+        dc.setColor(Graphics.COLOR_GREEN, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(centerX, y, Graphics.FONT_LARGE,
+                    "BLOCK DONE", Graphics.TEXT_JUSTIFY_CENTER);
+        y += hLarge + gap;
+
+        // Next block name
+        var blocks = workout.blocks;
+        var nextIdx = state.currentBlockIndex;
+        if (blocks != null && nextIdx < blocks.size()) {
+            var nextBlock = blocks[nextIdx] as WorkoutBlock;
+            dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
+            dc.drawText(centerX, y, Graphics.FONT_SMALL,
+                        "Next: " + nextBlock.name, Graphics.TEXT_JUSTIFY_CENTER);
         }
+        y += hSmall + gap;
+
+        dc.setColor(Graphics.COLOR_LT_GRAY, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(centerX, y, Graphics.FONT_XTINY,
+                    "Press START", Graphics.TEXT_JUSTIFY_CENTER);
+    }
+
+    // ── Sequential dashboard (largely unchanged from original) ──────────
+    private function _drawSequentialDashboard(dc as Graphics.Dc, state as SessionState,
+                                               screenW as Number, screenH as Number,
+                                               centerX as Number) as Void {
+        var exerciseName = _engine.getCurrentExerciseName();
+        var targetReps   = _engine.getCurrentTargetReps();
+        var targetWeight = _engine.getCurrentTargetWeight();
+        var totalSets    = _engine.getCurrentTotalSets();
+        var setNum       = state.currentSetIndex + 1;
 
         var leftX  = screenW / 4;
         var rightX = (screenW * 3) / 4;
 
-        // ── Runtime font heights ─────────────────────────────────────────────
         var hSmall = dc.getFontHeight(Graphics.FONT_SMALL);
         var hXtiny = dc.getFontHeight(Graphics.FONT_XTINY);
         var hTimer = dc.getFontHeight(Graphics.FONT_NUMBER_MEDIUM);
+        var GAP_SM = 4; var GAP_MD = 6; var GAP_LG = 8;
 
-        // ── Gap constants ────────────────────────────────────────────────────
-        var GAP_SM = 4;
-        var GAP_MD = 6;
-        var GAP_LG = 8;
-
-        // ── y cursor — accumulates from top of safe zone ─────────────────────
         var y = 44;
-
-        // Row 1 — Exercise name
-        var y_name = y;
-        y += hSmall + GAP_SM;
-
-        // Row 2 — Set indicator
-        var y_set = y;
-        y += hXtiny + GAP_SM;
-
-        // Row 3 — Phase badge
-        var y_badge = y;
-        y += hXtiny + GAP_MD;
-
-        // Divider 1
-        var y_div1 = y;
-        y += 1 + GAP_LG;
-
-        // Timer
-        var y_timer = y;
-        y += hTimer + GAP_LG;
-
-        // Divider 2
-        var y_div2 = y;
-        y += 1 + GAP_MD;
-
-        // Stats labels row (tight gap of 2 between label and value)
-        var y_labels = y;
-        y += hXtiny + 2;
-
-        // Stats values row
+        var y_name = y;  y += hSmall + GAP_SM;
+        var y_set = y;   y += hXtiny + GAP_SM;
+        var y_badge = y; y += hXtiny + GAP_MD;
+        var y_div1 = y;  y += 1 + GAP_LG;
+        var y_timer = y; y += hTimer + GAP_LG;
+        var y_div2 = y;  y += 1 + GAP_MD;
+        var y_labels = y; y += hXtiny + 2;
         var y_values = y;
-
-        // ── ZONE 1: HEADER ───────────────────────────────────────────────────
 
         // Exercise name
         dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
@@ -146,63 +151,214 @@ class DashboardView extends WatchUi.View {
                     exerciseName, Graphics.TEXT_JUSTIFY_CENTER);
 
         // Set indicator
-        var setLabel = "Set " + setNum.toString() + " / " + totalSets.toString();
         dc.setColor(Graphics.COLOR_LT_GRAY, Graphics.COLOR_TRANSPARENT);
         dc.drawText(centerX, y_set, Graphics.FONT_XTINY,
-                    setLabel, Graphics.TEXT_JUSTIFY_CENTER);
+                    "Set " + setNum.toString() + " / " + totalSets.toString(),
+                    Graphics.TEXT_JUSTIFY_CENTER);
 
         // Phase badge
-        var phaseText  = "";
-        var phaseColor = Graphics.COLOR_WHITE;
-        if (phase == PHASE_WORK) {
-            phaseText  = "WORK";
-            phaseColor = Graphics.COLOR_GREEN;
-        } else if (phase == PHASE_REST) {
-            phaseText  = "REST";
-            phaseColor = Graphics.COLOR_ORANGE;
-        } else if (phase == PHASE_IDLE) {
-            phaseText  = "READY";
-            phaseColor = Graphics.COLOR_LT_GRAY;
-        }
-        if (phaseText.length() > 0) {
-            dc.setColor(phaseColor, Graphics.COLOR_TRANSPARENT);
-            dc.drawText(centerX, y_badge, Graphics.FONT_XTINY,
-                        phaseText, Graphics.TEXT_JUSTIFY_CENTER);
-        }
+        _drawPhaseBadge(dc, state.phase, centerX, y_badge);
 
-        // Divider 1
+        // Dividers
         dc.setColor(Graphics.COLOR_DK_GRAY, Graphics.COLOR_TRANSPARENT);
         dc.drawLine(55, y_div1, 205, y_div1);
 
-        // ── ZONE 2: TIMER ────────────────────────────────────────────────────
-
+        // Timer
         var timerText  = _formatTimer(state);
         var timerColor = _timerColor(state);
         dc.setColor(timerColor, Graphics.COLOR_TRANSPARENT);
         dc.drawText(centerX, y_timer, Graphics.FONT_NUMBER_MEDIUM,
                     timerText, Graphics.TEXT_JUSTIFY_CENTER);
 
-        // Divider 2
         dc.setColor(Graphics.COLOR_DK_GRAY, Graphics.COLOR_TRANSPARENT);
         dc.drawLine(55, y_div2, 205, y_div2);
 
-        // ── ZONE 3: STATS (3-column) ─────────────────────────────────────────
-
-        // Labels row: "REPS" | "HR" | "WEIGHT"
+        // Stats: REPS | HR | WEIGHT
         dc.setColor(Graphics.COLOR_LT_GRAY, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(leftX,   y_labels, Graphics.FONT_XTINY, "REPS",   Graphics.TEXT_JUSTIFY_CENTER);
-        dc.drawText(rightX,  y_labels, Graphics.FONT_XTINY, "WEIGHT", Graphics.TEXT_JUSTIFY_CENTER);
-
+        dc.drawText(leftX,  y_labels, Graphics.FONT_XTINY, "REPS",   Graphics.TEXT_JUSTIFY_CENTER);
+        dc.drawText(rightX, y_labels, Graphics.FONT_XTINY, "WEIGHT", Graphics.TEXT_JUSTIFY_CENTER);
         dc.setColor(Graphics.COLOR_RED, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(centerX, y_labels, Graphics.FONT_XTINY, "HR",     Graphics.TEXT_JUSTIFY_CENTER);
+        dc.drawText(centerX, y_labels, Graphics.FONT_XTINY, "HR",    Graphics.TEXT_JUSTIFY_CENTER);
 
-        // Values row
         dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
         dc.drawText(leftX,  y_values, Graphics.FONT_XTINY,
                     targetReps.toString(), Graphics.TEXT_JUSTIFY_CENTER);
         dc.drawText(rightX, y_values, Graphics.FONT_XTINY,
                     targetWeight.format("%.1f") + " kg", Graphics.TEXT_JUSTIFY_CENTER);
         _drawHeartRate(dc, state, centerX, y_values);
+    }
+
+    // ── EMOM dashboard ──────────────────────────────────────────────────
+    private function _drawEmomDashboard(dc as Graphics.Dc, state as SessionState,
+                                         block as WorkoutBlock,
+                                         screenW as Number, screenH as Number,
+                                         centerX as Number) as Void {
+        var exerciseName = _engine.getCurrentExerciseName();
+        var targetReps   = _engine.getCurrentTargetReps();
+        var totalRounds  = (block.rounds != null) ? block.rounds.size() : 0;
+        var currentRound = state.currentRoundIndex + 1;
+
+        var leftX  = screenW / 4;
+        var rightX = (screenW * 3) / 4;
+
+        var hSmall = dc.getFontHeight(Graphics.FONT_SMALL);
+        var hXtiny = dc.getFontHeight(Graphics.FONT_XTINY);
+        var hTimer = dc.getFontHeight(Graphics.FONT_NUMBER_MEDIUM);
+        var GAP_SM = 4; var GAP_MD = 6; var GAP_LG = 8;
+
+        var y = 44;
+        var y_name = y;  y += hSmall + GAP_SM;
+        var y_round = y; y += hXtiny + GAP_SM;
+        var y_badge = y; y += hXtiny + GAP_MD;
+        var y_div1 = y;  y += 1 + GAP_LG;
+        var y_timer = y; y += hTimer + GAP_LG;
+        var y_div2 = y;  y += 1 + GAP_MD;
+        var y_labels = y; y += hXtiny + 2;
+        var y_values = y;
+
+        // Exercise name
+        dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(centerX, y_name, Graphics.FONT_SMALL,
+                    exerciseName, Graphics.TEXT_JUSTIFY_CENTER);
+
+        // Round indicator
+        dc.setColor(Graphics.COLOR_LT_GRAY, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(centerX, y_round, Graphics.FONT_XTINY,
+                    "Round " + currentRound.toString() + " / " + totalRounds.toString(),
+                    Graphics.TEXT_JUSTIFY_CENTER);
+
+        // Phase badge
+        _drawPhaseBadge(dc, state.phase, centerX, y_badge);
+
+        // Divider
+        dc.setColor(Graphics.COLOR_DK_GRAY, Graphics.COLOR_TRANSPARENT);
+        dc.drawLine(55, y_div1, 205, y_div1);
+
+        // Timer: interval countdown
+        var timerText = _formatTimer(state);
+        var timerColor = state.timerValueMs <= 5000 ? Graphics.COLOR_YELLOW : Graphics.COLOR_WHITE;
+        if (state.timerValueMs <= 0) { timerColor = Graphics.COLOR_RED; }
+        dc.setColor(timerColor, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(centerX, y_timer, Graphics.FONT_NUMBER_MEDIUM,
+                    timerText, Graphics.TEXT_JUSTIFY_CENTER);
+
+        // Divider
+        dc.setColor(Graphics.COLOR_DK_GRAY, Graphics.COLOR_TRANSPARENT);
+        dc.drawLine(55, y_div2, 205, y_div2);
+
+        // Stats: REPS | HR | TOTAL (remaining)
+        dc.setColor(Graphics.COLOR_LT_GRAY, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(leftX,  y_labels, Graphics.FONT_XTINY, "REPS",  Graphics.TEXT_JUSTIFY_CENTER);
+        dc.drawText(rightX, y_labels, Graphics.FONT_XTINY, "TOTAL", Graphics.TEXT_JUSTIFY_CENTER);
+        dc.setColor(Graphics.COLOR_RED, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(centerX, y_labels, Graphics.FONT_XTINY, "HR",   Graphics.TEXT_JUSTIFY_CENTER);
+
+        dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(leftX, y_values, Graphics.FONT_XTINY,
+                    targetReps.toString(), Graphics.TEXT_JUSTIFY_CENTER);
+
+        // Total remaining time
+        var strategy = _engine.getStrategy();
+        var totalRemSec = 0;
+        if (strategy instanceof EmomStrategy) {
+            totalRemSec = (strategy as EmomStrategy).getTotalRemainingSec(state, block);
+        }
+        var totalMin = totalRemSec / 60;
+        var totalSecPart = totalRemSec % 60;
+        var totalSecStr = totalSecPart < 10 ? "0" + totalSecPart.toString() : totalSecPart.toString();
+        dc.drawText(rightX, y_values, Graphics.FONT_XTINY,
+                    totalMin.toString() + ":" + totalSecStr, Graphics.TEXT_JUSTIFY_CENTER);
+
+        _drawHeartRate(dc, state, centerX, y_values);
+    }
+
+    // ── AMRAP dashboard ─────────────────────────────────────────────────
+    private function _drawAmrapDashboard(dc as Graphics.Dc, state as SessionState,
+                                          block as WorkoutBlock,
+                                          screenW as Number, screenH as Number,
+                                          centerX as Number) as Void {
+        var exerciseName = _engine.getCurrentExerciseName();
+        var targetReps   = _engine.getCurrentTargetReps();
+
+        var leftX  = screenW / 4;
+        var rightX = (screenW * 3) / 4;
+
+        var hSmall = dc.getFontHeight(Graphics.FONT_SMALL);
+        var hXtiny = dc.getFontHeight(Graphics.FONT_XTINY);
+        var hTimer = dc.getFontHeight(Graphics.FONT_NUMBER_MEDIUM);
+        var GAP_SM = 4; var GAP_MD = 6; var GAP_LG = 8;
+
+        var y = 44;
+        var y_name = y;  y += hSmall + GAP_SM;
+        var y_round = y; y += hXtiny + GAP_SM;
+        var y_badge = y; y += hXtiny + GAP_MD;
+        var y_div1 = y;  y += 1 + GAP_LG;
+        var y_timer = y; y += hTimer + GAP_LG;
+        var y_div2 = y;  y += 1 + GAP_MD;
+        var y_labels = y; y += hXtiny + 2;
+        var y_values = y;
+
+        // Exercise name
+        dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(centerX, y_name, Graphics.FONT_SMALL,
+                    exerciseName, Graphics.TEXT_JUSTIFY_CENTER);
+
+        // Round indicator
+        dc.setColor(Graphics.COLOR_LT_GRAY, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(centerX, y_round, Graphics.FONT_XTINY,
+                    "Round " + state.amrapRoundsCompleted.toString(),
+                    Graphics.TEXT_JUSTIFY_CENTER);
+
+        // Phase badge
+        _drawPhaseBadge(dc, state.phase, centerX, y_badge);
+
+        // Divider
+        dc.setColor(Graphics.COLOR_DK_GRAY, Graphics.COLOR_TRANSPARENT);
+        dc.drawLine(55, y_div1, 205, y_div1);
+
+        // Timer: total countdown
+        var timerText = _formatTimer(state);
+        var timerColor = state.timerValueMs <= 10000 ? Graphics.COLOR_YELLOW : Graphics.COLOR_WHITE;
+        if (state.timerValueMs <= 0) { timerColor = Graphics.COLOR_RED; }
+        dc.setColor(timerColor, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(centerX, y_timer, Graphics.FONT_NUMBER_MEDIUM,
+                    timerText, Graphics.TEXT_JUSTIFY_CENTER);
+
+        // Divider
+        dc.setColor(Graphics.COLOR_DK_GRAY, Graphics.COLOR_TRANSPARENT);
+        dc.drawLine(55, y_div2, 205, y_div2);
+
+        // Stats: REPS | HR
+        dc.setColor(Graphics.COLOR_LT_GRAY, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(leftX,  y_labels, Graphics.FONT_XTINY, "REPS",  Graphics.TEXT_JUSTIFY_CENTER);
+        dc.setColor(Graphics.COLOR_RED, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(centerX, y_labels, Graphics.FONT_XTINY, "HR",   Graphics.TEXT_JUSTIFY_CENTER);
+
+        dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(leftX, y_values, Graphics.FONT_XTINY,
+                    targetReps.toString(), Graphics.TEXT_JUSTIFY_CENTER);
+
+        _drawHeartRate(dc, state, centerX, y_values);
+    }
+
+    // ── Shared helpers ──────────────────────────────────────────────────
+
+    private function _drawPhaseBadge(dc as Graphics.Dc, phase as Number,
+                                      centerX as Number, y as Number) as Void {
+        var phaseText  = "";
+        var phaseColor = Graphics.COLOR_WHITE;
+        if (phase == PHASE_WORK) {
+            phaseText = "WORK"; phaseColor = Graphics.COLOR_GREEN;
+        } else if (phase == PHASE_REST) {
+            phaseText = "REST"; phaseColor = Graphics.COLOR_ORANGE;
+        } else if (phase == PHASE_IDLE) {
+            phaseText = "READY"; phaseColor = Graphics.COLOR_LT_GRAY;
+        }
+        if (phaseText.length() > 0) {
+            dc.setColor(phaseColor, Graphics.COLOR_TRANSPARENT);
+            dc.drawText(centerX, y, Graphics.FONT_XTINY,
+                        phaseText, Graphics.TEXT_JUSTIFY_CENTER);
+        }
     }
 
     // Draws the workout-complete summary screen.

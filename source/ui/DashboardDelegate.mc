@@ -20,74 +20,61 @@ class DashboardDelegate extends WatchUi.BehaviorDelegate {
         _engine.setOnFinished(method(:_onWorkoutFinished));
     }
 
-    // START/STOP button. Behavior depends on current phase:
-    //   IDLE     -> start set (begin work phase)
-    //   WORK     -> set complete: auto-record with target values, notify phone, transition to REST
-    //   REST     -> start next set early (user cuts rest short)
-    //   FINISHED -> no action
+    // START/STOP button. Behavior depends on phase and block type.
     function onSelect() as Boolean {
         var state = _engine.getCurrentState();
         if (state == null) { return true; }
 
         var phase = state.phase;
 
-        if (phase == PHASE_IDLE || phase == PHASE_REST) {
+        // IDLE or BLOCK_COMPLETE: start the (next) block
+        if (phase == PHASE_IDLE || phase == PHASE_BLOCK_COMPLETE) {
             _engine.startSet();
-        } else if (phase == PHASE_WORK) {
-            // Resolve the current exercise to get target weight/reps
+            return true;
+        }
+
+        // REST during sequential: cut rest short, start next set
+        if (phase == PHASE_REST) {
+            var block = _engine.getCurrentBlock();
+            if (block != null && block.type == BLOCK_SEQUENTIAL) {
+                _engine.startSet();
+            }
+            // EMOM REST: user can't skip the interval — do nothing
+            return true;
+        }
+
+        // WORK phase: mark current exercise/set done
+        if (phase == PHASE_WORK) {
+            var block = _engine.getCurrentBlock();
+            if (block == null) { return true; }
+
+            var targetWeight = _engine.getCurrentTargetWeight();
+            var targetReps   = _engine.getCurrentTargetReps();
+            var exerciseName = _engine.getCurrentExerciseName();
+
+            // Build phone notification payload
             var workout = _engine.getWorkout();
-            var exercise = null;
-            if (workout != null && workout.exercises != null) {
-                var exIndex = state.currentExerciseIndex;
-                if (exIndex < workout.exercises.size()) {
-                    exercise = workout.exercises[exIndex] as Exercise;
-                }
-            }
-
-            // Use target values from the exercise definition; default to 0 if unavailable
-            var targetWeight = 0.0f;
-            var targetReps   = 0;
-            var exerciseName = "";
-            var totalSets    = 0;
-            var totalExercises = (workout != null && workout.exercises != null)
-                ? workout.exercises.size()
-                : 0;
-
-            if (exercise != null) {
-                targetWeight  = exercise.targetWeight;
-                targetReps    = exercise.targetReps;
-                exerciseName  = exercise.name;
-                totalSets     = exercise.targetSets;
-            }
-
-            // Override with per-set BlockSet values (v2)
-            var blockSet = _engine.getCurrentBlockSet();
-            if (blockSet != null) {
-                if (blockSet.wKg != null) { targetWeight = blockSet.wKg; }
-                if (blockSet.reps != null) { targetReps = blockSet.reps; }
-                exerciseName = blockSet.name;
-            }
-            if (exercise != null && exercise.sets != null) {
-                totalSets = exercise.sets.size();
-            }
-
-            // Build fire-and-forget phone notification payload
             var payload = {
                 "type"           => "set_complete",
                 "exerciseName"   => exerciseName,
+                "blockIndex"     => state.currentBlockIndex,
                 "exerciseIndex"  => state.currentExerciseIndex,
-                "totalExercises" => totalExercises,
                 "setIndex"       => state.currentSetIndex,
-                "totalSets"      => totalSets,
                 "durationMs"     => state.timerValueMs,
                 "targetWeight"   => targetWeight,
                 "targetReps"     => targetReps
             };
 
+            if (block.type == BLOCK_EMOM) {
+                payload.put("roundIndex", state.currentRoundIndex);
+            } else if (block.type == BLOCK_AMRAP) {
+                payload.put("amrapRound", state.amrapRoundsCompleted);
+            }
+
             _commService.sendSetComplete(payload);
             _engine.completeSet(targetWeight, targetReps);
         }
-        // PHASE_FINISHED: no action
+
         return true;
     }
 

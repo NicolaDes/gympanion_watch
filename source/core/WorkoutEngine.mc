@@ -48,17 +48,20 @@ class WorkoutEngine {
         _onFinished = callback;
     }
 
-    // Resets the session to start from the given exercise index.
-    // Called when the user selects an exercise (or "Start") from the summary menu.
-    function startFromExercise(exerciseIndex as Number) as Void {
+    // Starts a fresh session from the given block index.
+    // (Renamed from startFromExercise — now block-aware.)
+    function startFromBlock(blockIndex as Number) as Void {
         if (_workout == null) { return; }
         _timerService.stop();
         _persistenceService.clearSession();
         var sessionId = "session_" + Time.now().value().toString();
         _sessionState = new SessionState(sessionId, _workout.id);
-        _sessionState.currentExerciseIndex = exerciseIndex;
+        _sessionState.currentBlockIndex = blockIndex;
+        _sessionState.currentExerciseIndex = 0;
+        _sessionState.currentSetIndex = 0;
         _workoutStarted = false;
-        System.println("[Engine] startFromExercise(" + exerciseIndex + ")");
+        _switchStrategyForCurrentBlock();
+        System.println("[Engine] startFromBlock(" + blockIndex + ")");
         WatchUi.requestUpdate();
     }
 
@@ -68,6 +71,7 @@ class WorkoutEngine {
         var sessionId = "session_" + Time.now().value().toString();
         _sessionState = new SessionState(sessionId, workout.id);
         _workoutStarted = false;
+        _switchStrategyForCurrentBlock();
         System.println("[Engine] New session: " + sessionId);
     }
 
@@ -80,7 +84,12 @@ class WorkoutEngine {
         if (phase == PHASE_WORK || phase == PHASE_REST) {
             _sessionState.phase = PHASE_IDLE;
         }
+        // Also normalize BLOCK_COMPLETE to IDLE on restore
+        if (_sessionState.phase == PHASE_BLOCK_COMPLETE) {
+            _sessionState.phase = PHASE_IDLE;
+        }
         _workoutStarted = (_sessionState.completedSets.size() > 0);
+        _switchStrategyForCurrentBlock();
         System.println("[Engine] Session restored, phase -> IDLE");
     }
 
@@ -107,59 +116,231 @@ class WorkoutEngine {
         return ex.sets[setIdx] as BlockSet;
     }
 
-    // Transitions from IDLE or REST to WORK phase. Starts the work timer.
+    // Returns the current BlockSet for EMOM/AMRAP blocks via the active strategy.
+    // Falls back to the sequential getCurrentBlockSet() for sequential blocks.
+    function getActiveBlockSet() as BlockSet or Null {
+        if (_workout == null || _sessionState == null) { return null; }
+        var block = getCurrentBlock();
+        if (block == null) { return null; }
+
+        if (block.type == BLOCK_EMOM && _strategy instanceof EmomStrategy) {
+            return (_strategy as EmomStrategy).getCurrentBlockSet(_sessionState, _workout);
+        }
+        if (block.type == BLOCK_AMRAP && _strategy instanceof AmrapStrategy) {
+            return (_strategy as AmrapStrategy).getCurrentBlockSet(_sessionState, _workout);
+        }
+        // Sequential: use existing method
+        return getCurrentBlockSet();
+    }
+
+    // Returns the display name of the current exercise, resolved from the active block.
+    function getCurrentExerciseName() as String {
+        var bs = getActiveBlockSet();
+        if (bs != null) { return bs.name; }
+
+        // Sequential fallback: use flat exercises array
+        if (_workout != null && _sessionState != null) {
+            var block = getCurrentBlock();
+            if (block != null && block.type == BLOCK_SEQUENTIAL && block.exercises != null) {
+                var exIdx = _sessionState.currentExerciseIndex;
+                if (exIdx < block.exercises.size()) {
+                    var ex = block.exercises[exIdx] as Exercise;
+                    return ex.name;
+                }
+            }
+        }
+        return "---";
+    }
+
+    // Returns the target reps for the current exercise/set.
+    function getCurrentTargetReps() as Number {
+        var bs = getActiveBlockSet();
+        if (bs != null && bs.reps != null) { return bs.reps; }
+
+        // Sequential fallback
+        if (_workout != null && _sessionState != null) {
+            var block = getCurrentBlock();
+            if (block != null && block.type == BLOCK_SEQUENTIAL && block.exercises != null) {
+                var exIdx = _sessionState.currentExerciseIndex;
+                if (exIdx < block.exercises.size()) {
+                    var ex = block.exercises[exIdx] as Exercise;
+                    return ex.targetReps;
+                }
+            }
+        }
+        return 0;
+    }
+
+    // Returns the target weight for the current exercise/set.
+    function getCurrentTargetWeight() as Float {
+        var bs = getActiveBlockSet();
+        if (bs != null && bs.wKg != null) { return bs.wKg; }
+
+        // Sequential fallback
+        if (_workout != null && _sessionState != null) {
+            var block = getCurrentBlock();
+            if (block != null && block.type == BLOCK_SEQUENTIAL && block.exercises != null) {
+                var exIdx = _sessionState.currentExerciseIndex;
+                if (exIdx < block.exercises.size()) {
+                    var ex = block.exercises[exIdx] as Exercise;
+                    return ex.targetWeight;
+                }
+            }
+        }
+        return 0.0f;
+    }
+
+    // Returns total sets for the current sequential exercise, or 0 for EMOM/AMRAP.
+    function getCurrentTotalSets() as Number {
+        var block = getCurrentBlock();
+        if (block == null || _sessionState == null) { return 0; }
+        if (block.type != BLOCK_SEQUENTIAL || block.exercises == null) { return 0; }
+
+        var exIdx = _sessionState.currentExerciseIndex;
+        if (exIdx >= block.exercises.size()) { return 0; }
+        var ex = block.exercises[exIdx] as Exercise;
+        if (ex.sets != null) { return ex.sets.size(); }
+        return ex.targetSets;
+    }
+
+    // Switches the active strategy based on the current block type.
+    // Called when starting a new block or restoring a session.
+    private function _switchStrategyForCurrentBlock() as Void {
+        var block = getCurrentBlock();
+        if (block == null) {
+            _strategy = new SequentialStrategy();
+            return;
+        }
+        if (block.type == BLOCK_EMOM) {
+            _strategy = new EmomStrategy();
+        } else if (block.type == BLOCK_AMRAP) {
+            _strategy = new AmrapStrategy();
+        } else {
+            _strategy = new SequentialStrategy();
+        }
+        System.println("[Engine] Strategy switched to " + block.type.toString());
+    }
+
+    // Advances to the next block. Sets phase to BLOCK_COMPLETE if more blocks
+    // remain, or FINISHED if this was the last block.
+    private function _advanceBlock() as Void {
+        if (_sessionState == null || _workout == null) { return; }
+        var state = _sessionState;
+
+        state.currentBlockIndex = state.currentBlockIndex + 1;
+        state.currentExerciseIndex = 0;
+        state.currentSetIndex = 0;
+        state.currentRoundIndex = 0;
+
+        if (_workout.blocks != null && state.currentBlockIndex < _workout.blocks.size()) {
+            state.phase = PHASE_BLOCK_COMPLETE;
+            _switchStrategyForCurrentBlock();
+            System.println("[Engine] Block complete, next block: " + state.currentBlockIndex);
+        } else {
+            _timerService.stop();
+            state.phase = PHASE_FINISHED;
+            var nowTs = Time.now().value();
+            _eventRecorder.record("WorkoutFinished", {
+                "totalSets"       => state.completedSets.size(),
+                "totalDurationMs" => nowTs - state.startTimestamp
+            });
+            _persistenceService.clearEvents();
+            System.println("[Engine] All blocks complete -> FINISHED");
+            if (_onFinished != null) {
+                _onFinished.invoke();
+            }
+        }
+        _persistenceService.saveSession(state);
+        WatchUi.requestUpdate();
+    }
+
+    // Transitions from IDLE, REST, or BLOCK_COMPLETE to WORK phase.
+    // Block-aware: handles sequential, EMOM, and AMRAP start logic.
     function startSet() as Void {
         if (_sessionState == null || _workout == null) { return; }
         var state = _sessionState;
+        var block = getCurrentBlock();
+        if (block == null) { return; }
 
         // Emit WorkoutStarted on very first user action
         if (!_workoutStarted) {
             _workoutStarted = true;
-            var exercises = _workout.exercises;
             _eventRecorder.setSessionId(state.sessionId);
             _eventRecorder.record("WorkoutStarted", {
-                "workoutId"     => _workout.id,
-                "workoutName"   => _workout.name,
-                "exerciseCount" => exercises.size()
+                "workoutId"   => _workout.id,
+                "workoutName" => _workout.name
             });
         }
 
-        // Emit ExerciseStarted if this is the first set of this exercise
-        if (state.currentSetIndex == 0) {
-            var exercises = _workout.exercises;
-            if (exercises != null && exercises.size() > state.currentExerciseIndex) {
-                var ex = exercises[state.currentExerciseIndex] as Exercise;
-                _eventRecorder.record("ExerciseStarted", {
-                    "exerciseIndex" => state.currentExerciseIndex,
-                    "exerciseName"  => ex.name,
-                    "targetSets"    => ex.targetSets,
-                    "targetReps"    => ex.targetReps,
-                    "targetWeight"  => ex.targetWeight
-                });
+        var nowTs = Time.now().value();
+
+        if (block.type == BLOCK_EMOM) {
+            // EMOM: start the interval countdown
+            state.phase = PHASE_WORK;
+            state.roundStartTimestamp = nowTs;
+            if (state.blockStartTimestamp == 0) {
+                state.blockStartTimestamp = nowTs;
             }
+            state.timerValueMs = (block.intervalSec != null ? block.intervalSec : 60) * 1000;
+            _samplingEngine.beginSet();
+            _timerService.start(method(:onTimerTick), 1000);
+        } else if (block.type == BLOCK_AMRAP) {
+            // AMRAP: start the total countdown
+            state.phase = PHASE_WORK;
+            state.blockStartTimestamp = nowTs;
+            state.timerValueMs = (block.timeCapSec != null ? block.timeCapSec : 600) * 1000;
+            _samplingEngine.beginSet();
+            _timerService.start(method(:onTimerTick), 1000);
+        } else {
+            // Sequential: existing logic
+            if (state.currentSetIndex == 0) {
+                var exercises = block.exercises;
+                if (exercises != null && state.currentExerciseIndex < exercises.size()) {
+                    var ex = exercises[state.currentExerciseIndex] as Exercise;
+                    _eventRecorder.record("ExerciseStarted", {
+                        "exerciseIndex" => state.currentExerciseIndex,
+                        "exerciseName"  => ex.name,
+                        "targetSets"    => ex.targetSets,
+                        "targetReps"    => ex.targetReps,
+                        "targetWeight"  => ex.targetWeight
+                    });
+                }
+            }
+            state.phase        = PHASE_WORK;
+            state.timerValueMs = 0;
+            _samplingEngine.beginSet();
+            _timerService.start(method(:onTimerTick), 1000);
         }
 
-        state.phase        = PHASE_WORK;
-        state.timerValueMs = 0;
-        _samplingEngine.beginSet();
-        _timerService.start(method(:onTimerTick), 1000);
         _persistenceService.saveSession(state);
         WatchUi.requestUpdate();
-        System.println("[Engine] startSet -> PHASE_WORK");
+        System.println("[Engine] startSet -> PHASE_WORK (block type=" + block.type + ")");
     }
 
-    // Called when a set is complete. Records the set, advances the timeline,
-    // starts rest or finishes the workout.
+    // Called when a set is complete. Routes to block-type-specific completion logic.
     function completeSet(weight as Float, reps as Number) as Void {
         if (_sessionState == null || _workout == null) { return; }
-        var state = _sessionState;
+        var block = getCurrentBlock();
+        if (block == null) { return; }
 
-        // Finalize sampling
+        if (block.type == BLOCK_EMOM) {
+            _completeEmomSet(weight, reps);
+        } else if (block.type == BLOCK_AMRAP) {
+            _completeAmrapSet(weight, reps);
+        } else {
+            _completeSequentialSet(weight, reps);
+        }
+    }
+
+    // Sequential set completion: existing logic, now block-scoped.
+    private function _completeSequentialSet(weight as Float, reps as Number) as Void {
+        var state = _sessionState;
+        var block = getCurrentBlock();
+
         var avgHr = _samplingEngine.finalizeSet();
         var peakHr = _samplingEngine.getPeakHr();
         var nowTs = Time.now().value();
 
-        // Record completed set in sessionState
         var setRecord = {
             "ei"     => state.currentExerciseIndex,
             "si"     => state.currentSetIndex,
@@ -172,7 +353,6 @@ class WorkoutEngine {
         };
         state.completedSets.add(setRecord);
 
-        // Emit SetCompleted event
         _eventRecorder.record("SetCompleted", {
             "exerciseIndex" => state.currentExerciseIndex,
             "setIndex"      => state.currentSetIndex,
@@ -183,18 +363,16 @@ class WorkoutEngine {
             "durationMs"    => state.timerValueMs
         });
 
-        // Update last-used values (retained for session persistence)
         state.lastWeight = weight;
         state.lastReps   = reps;
 
-        // Determine next state via strategy
         var result = _strategy.nextAction(state, _workout);
         var finished = result["finished"];
 
         if (finished) {
-            // Build and store sequential block result before finishing
-            var block = getCurrentBlock();
-            if (block != null && block.type == BLOCK_SEQUENTIAL && block.exercises != null) {
+            _timerService.stop();
+            // Build sequential block result
+            if (block != null && block.exercises != null) {
                 var blockResult = _resultSerializer.serializeSequentialBlockResult(
                     state.currentBlockIndex,
                     block.exercises,
@@ -202,39 +380,26 @@ class WorkoutEngine {
                 );
                 state.blockResults.add(blockResult);
             }
-
-            // Workout complete
-            _timerService.stop();
-            state.phase = PHASE_FINISHED;
-            _eventRecorder.record("WorkoutFinished", {
-                "totalSets"       => state.completedSets.size(),
-                "totalDurationMs" => nowTs - state.startTimestamp
-            });
-            _persistenceService.saveSession(state);
-            _persistenceService.clearEvents();
-            System.println("[Engine] Workout FINISHED (events cleared)");
-            if (_onFinished != null) {
-                _onFinished.invoke();
-            }
+            // Clear completed sets for this block (next block starts fresh)
+            state.completedSets = new [0];
+            _advanceBlock();
         } else {
-            // Start rest
             var nextExerciseIndex = result["exerciseIndex"];
             var nextSetIndex      = result["setIndex"];
             state.currentExerciseIndex = nextExerciseIndex;
             state.currentSetIndex      = nextSetIndex;
 
-            var exercises = _workout.exercises;
-            // Determine which exercise's rest duration to use (the one just completed)
-            var completedExerciseIndex = setRecord["ei"];
-            var restDurationSec = 90; // fallback default
-
-            // Try per-set rest from BlockSet first (v2)
+            // Determine rest duration from BlockSet or Exercise
             var blockSet = getCurrentBlockSet();
+            var restDurationSec = 90;
             if (blockSet != null && blockSet.restSec != null) {
                 restDurationSec = blockSet.restSec;
-            } else if (exercises != null && completedExerciseIndex < exercises.size()) {
-                var completedExercise = exercises[completedExerciseIndex] as Exercise;
-                restDurationSec = completedExercise.restDurationSec;
+            } else if (block != null && block.exercises != null) {
+                var completedExIdx = setRecord["ei"];
+                if (completedExIdx < block.exercises.size()) {
+                    var completedEx = block.exercises[completedExIdx] as Exercise;
+                    restDurationSec = completedEx.restDurationSec;
+                }
             }
 
             state.phase         = PHASE_REST;
@@ -243,16 +408,89 @@ class WorkoutEngine {
             state.restAlertFired = false;
 
             _timerService.start(method(:onTimerTick), 1000);
-
-            _eventRecorder.record("RestStarted", {
-                "exerciseIndex"  => completedExerciseIndex,
-                "restDurationMs" => state.restDurationMs
-            });
-
             _persistenceService.saveSession(state);
-            System.println("[Engine] completeSet -> PHASE_REST, restMs=" + state.restDurationMs);
+            System.println("[Engine] completeSequentialSet -> REST, restMs=" + state.restDurationMs);
         }
 
+        WatchUi.requestUpdate();
+    }
+
+    // EMOM set completion: marks exercise done within current round.
+    // The user pressed START to say "I finished this exercise."
+    // If there are more exercises in the round, advance setIndex.
+    // Otherwise, wait for interval to expire (handled by tick).
+    private function _completeEmomSet(weight as Float, reps as Number) as Void {
+        var state = _sessionState;
+        var nowTs = Time.now().value();
+        var avgHr = _samplingEngine.finalizeSet();
+        var peakHr = _samplingEngine.getPeakHr();
+
+        var setRecord = {
+            "bi"     => state.currentBlockIndex,
+            "ri"     => state.currentRoundIndex,
+            "si"     => state.currentSetIndex,
+            "w"      => weight,
+            "r"      => reps,
+            "hr"     => avgHr != null ? avgHr : -1,
+            "peakHr" => peakHr,
+            "durMs"  => (nowTs - state.roundStartTimestamp) * 1000,
+            "ts"     => nowTs
+        };
+        state.completedSets.add(setRecord);
+
+        var result = _strategy.nextAction(state, _workout);
+        var roundFinished = result["roundFinished"];
+
+        if (roundFinished != null && roundFinished == true) {
+            // All exercises in this round done — wait for interval timer
+            // Phase stays WORK but user sees remaining interval time
+            state.phase = PHASE_REST; // visual: "rest" until interval expires
+            System.println("[Engine] EMOM round " + state.currentRoundIndex + " exercises done, waiting for interval");
+        } else {
+            // More exercises in this round
+            state.currentSetIndex = result["setIndex"];
+            _samplingEngine.beginSet();
+            System.println("[Engine] EMOM advanced to set " + state.currentSetIndex);
+        }
+
+        _persistenceService.saveSession(state);
+        WatchUi.requestUpdate();
+    }
+
+    // AMRAP set completion: marks exercise done, cycles template.
+    private function _completeAmrapSet(weight as Float, reps as Number) as Void {
+        var state = _sessionState;
+        var nowTs = Time.now().value();
+        var avgHr = _samplingEngine.finalizeSet();
+        var peakHr = _samplingEngine.getPeakHr();
+
+        var setRecord = {
+            "bi"     => state.currentBlockIndex,
+            "ri"     => state.amrapRoundsCompleted,
+            "si"     => state.currentSetIndex,
+            "w"      => weight,
+            "r"      => reps,
+            "hr"     => avgHr != null ? avgHr : -1,
+            "peakHr" => peakHr,
+            "ts"     => nowTs
+        };
+        state.completedSets.add(setRecord);
+
+        var result = _strategy.nextAction(state, _workout);
+        var roundComplete = result["roundComplete"];
+
+        if (roundComplete != null && roundComplete == true) {
+            state.amrapRoundsCompleted = state.amrapRoundsCompleted + 1;
+            state.currentSetIndex = 0;
+            state.amrapPartialReps = 0;
+            System.println("[Engine] AMRAP round " + state.amrapRoundsCompleted + " complete");
+        } else {
+            state.currentSetIndex = result["setIndex"];
+            state.amrapPartialReps = state.amrapPartialReps + 1;
+        }
+
+        _samplingEngine.beginSet();
+        _persistenceService.saveSession(state);
         WatchUi.requestUpdate();
     }
 
@@ -285,25 +523,185 @@ class WorkoutEngine {
         return _workout;
     }
 
-    // Called every 1000ms by TimerService. Updates timer and triggers redraw.
-    function onTimerTick() as Void {
-        if (_sessionState == null) { return; }
-        var state = _sessionState;
+    // Returns the active strategy. Used by DashboardView for block-specific queries.
+    function getStrategy() as TimelineStrategy {
+        return _strategy;
+    }
 
+    // Called every 1000ms by TimerService. Routes to block-type-specific tick logic.
+    function onTimerTick() as Void {
+        if (_sessionState == null || _workout == null) { return; }
+        var state = _sessionState;
+        var block = getCurrentBlock();
+
+        if (block != null && block.type == BLOCK_EMOM) {
+            _onEmomTick(state, block);
+        } else if (block != null && block.type == BLOCK_AMRAP) {
+            _onAmrapTick(state, block);
+        } else {
+            _onSequentialTick(state);
+        }
+
+        WatchUi.requestUpdate();
+    }
+
+    // Sequential tick: existing count-up (work) / count-down (rest) logic.
+    private function _onSequentialTick(state as SessionState) as Void {
         if (state.phase == PHASE_WORK) {
             state.timerValueMs = state.timerValueMs + 1000;
             _samplingEngine.sample();
         } else if (state.phase == PHASE_REST) {
             state.timerValueMs = state.timerValueMs - 1000;
-
-            // Fire haptic alert when rest reaches zero (only once)
             if (state.timerValueMs <= 0 && !state.restAlertFired) {
                 state.restAlertFired = true;
                 _fireRestAlert();
             }
         }
+    }
 
-        WatchUi.requestUpdate();
+    // EMOM tick: interval countdown with auto-advance to next round.
+    private function _onEmomTick(state as SessionState, block as WorkoutBlock) as Void {
+        if (state.phase != PHASE_WORK && state.phase != PHASE_REST) { return; }
+
+        _samplingEngine.sample();
+
+        // Check total time first
+        if (block.intervalSec != null && block.rounds != null) {
+            var totalDurationSec = block.intervalSec * block.rounds.size();
+            var totalElapsed = Time.now().value() - state.blockStartTimestamp;
+
+            if (totalElapsed >= totalDurationSec) {
+                // EMOM block time is up — finish block
+                _timerService.stop();
+                _fireRestAlert();
+
+                // Build EMOM block result
+                var roundResults = _buildEmomRoundResults(state, block);
+                var blockResult = _resultSerializer.serializeEmomBlockResult(
+                    state.currentBlockIndex,
+                    block.intervalSec,
+                    roundResults
+                );
+                state.blockResults.add(blockResult);
+                state.completedSets = new [0];
+                _advanceBlock();
+                return;
+            }
+        }
+
+        // Update interval countdown
+        var intervalElapsed = Time.now().value() - state.roundStartTimestamp;
+        var intervalSec = block.intervalSec != null ? block.intervalSec : 60;
+        var remaining = intervalSec - intervalElapsed;
+        state.timerValueMs = remaining * 1000;
+
+        // Interval expired — advance to next round
+        if (remaining <= 0) {
+            _fireRestAlert();
+            state.currentRoundIndex = state.currentRoundIndex + 1;
+            state.currentSetIndex = 0;
+            state.roundStartTimestamp = Time.now().value();
+            state.timerValueMs = intervalSec * 1000;
+            state.phase = PHASE_WORK;
+            _samplingEngine.beginSet();
+            System.println("[Engine] EMOM auto-advance to round " + state.currentRoundIndex);
+        }
+    }
+
+    // AMRAP tick: total countdown, auto-finish when time is up.
+    private function _onAmrapTick(state as SessionState, block as WorkoutBlock) as Void {
+        if (state.phase != PHASE_WORK) { return; }
+
+        _samplingEngine.sample();
+
+        var timeCapSec = block.timeCapSec != null ? block.timeCapSec : 600;
+        var elapsed = Time.now().value() - state.blockStartTimestamp;
+        var remaining = timeCapSec - elapsed;
+        state.timerValueMs = remaining * 1000;
+
+        if (remaining <= 0) {
+            // AMRAP time is up
+            _timerService.stop();
+            _fireRestAlert();
+            state.timerValueMs = 0;
+
+            // Build AMRAP block result
+            var roundResults = _buildAmrapRoundResults(state, block);
+            var blockResult = _resultSerializer.serializeAmrapBlockResult(
+                state.currentBlockIndex,
+                timeCapSec,
+                state.amrapRoundsCompleted,
+                state.amrapPartialReps,
+                roundResults
+            );
+            state.blockResults.add(blockResult);
+            state.completedSets = new [0];
+            _advanceBlock();
+        }
+    }
+
+    // Builds round result arrays for EMOM block result serialization.
+    private function _buildEmomRoundResults(state as SessionState, block as WorkoutBlock) as Array {
+        var results = new [0];
+        if (block.rounds == null) { return results; }
+
+        var rounds = block.rounds;
+        for (var ri = 0; ri < rounds.size(); ri++) {
+            var roundSets = new [0];
+            for (var j = 0; j < state.completedSets.size(); j++) {
+                var rec = state.completedSets[j] as Dictionary;
+                if (rec["ri"] == ri) {
+                    roundSets.add({
+                        "exId"  => rec["si"],
+                        "reps"  => rec["r"],
+                        "wKg"   => rec["w"],
+                        "avgHr" => rec["hr"]
+                    });
+                }
+            }
+            // Estimate time-to-complete from first set timestamp
+            var intervalSec = block.intervalSec != null ? block.intervalSec : 60;
+            results.add({
+                "ri"   => ri,
+                "ttc"  => roundSets.size() > 0 ? intervalSec : 0,
+                "trem" => 0,
+                "sets" => roundSets
+            });
+        }
+        return results;
+    }
+
+    // Builds round result arrays for AMRAP block result serialization.
+    private function _buildAmrapRoundResults(state as SessionState, block as WorkoutBlock) as Array {
+        var results = new [0];
+        var templateSize = (block.sets != null) ? block.sets.size() : 1;
+
+        // Group completed sets by round
+        var maxRound = state.amrapRoundsCompleted;
+        if (state.amrapPartialReps > 0) { maxRound = maxRound + 1; }
+
+        for (var ri = 0; ri <= maxRound && ri <= state.amrapRoundsCompleted; ri++) {
+            var roundSets = new [0];
+            for (var j = 0; j < state.completedSets.size(); j++) {
+                var rec = state.completedSets[j] as Dictionary;
+                if (rec["ri"] == ri) {
+                    roundSets.add({
+                        "exId"  => rec["si"],
+                        "reps"  => rec["r"],
+                        "wKg"   => rec["w"],
+                        "avgHr" => rec["hr"]
+                    });
+                }
+            }
+            var isPartial = (ri == state.amrapRoundsCompleted && state.amrapPartialReps > 0);
+            results.add({
+                "ri"      => ri,
+                "durMs"   => 0,
+                "partial" => isPartial,
+                "sets"    => roundSets
+            });
+        }
+        return results;
     }
 
     // Clears the saved session and starts a brand-new one for the current workout.

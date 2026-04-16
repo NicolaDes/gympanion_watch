@@ -87,51 +87,46 @@ class gympApp extends Application.AppBase {
     // replacing the stale menu that was built at app start.
     function onWorkoutAccepted() as Void {
         var workout = _engine.getWorkout();
-        var title = (workout != null) ? workout.name : "GymPanion";
-        var menu = new WatchUi.Menu2({:title => title});
-
-        menu.addItem(new WatchUi.MenuItem(
-            WatchUi.loadResource(Rez.Strings.LabelStart) as String,
-            null, -1, {}
-        ));
-
-        if (workout != null && workout.exercises != null) {
-            var exercises = workout.exercises;
-            for (var i = 0; i < exercises.size(); i++) {
-                var ex = exercises[i] as Exercise;
-                menu.addItem(new WatchUi.MenuItem(ex.name, null, i, {}));
-            }
-        }
-
+        var menu = _buildSummaryMenu(workout);
         WatchUi.switchToView(menu, new WorkoutSummaryDelegate(_engine, _commService), WatchUi.SLIDE_IMMEDIATE);
         System.println("[App] Summary menu rebuilt for new workout");
     }
 
     // Returns the summary menu as the initial view.
-    // Lists "Start" plus each exercise by name; selecting any item
-    // starts the workout from that exercise and pushes the dashboard.
+    // Lists "Start" plus one entry per block; selecting any item
+    // starts the workout from that block and pushes the dashboard.
     function getInitialView() as [Views] or [Views, InputDelegates] {
         var workout = _engine.getWorkout();
+        var menu = _buildSummaryMenu(workout);
+        return [menu, new WorkoutSummaryDelegate(_engine, _commService)];
+    }
 
+    // Builds a Menu2 with "Start" plus one entry per block.
+    private function _buildSummaryMenu(workout as Workout or Null) as WatchUi.Menu2 {
         var title = (workout != null) ? workout.name : "GymPanion";
         var menu = new WatchUi.Menu2({:title => title});
 
-        // "Start" item — always starts from exercise 0
         menu.addItem(new WatchUi.MenuItem(
             WatchUi.loadResource(Rez.Strings.LabelStart) as String,
             null, -1, {}
         ));
 
-        // One item per exercise, in order
-        if (workout != null && workout.exercises != null) {
-            var exercises = workout.exercises;
-            for (var i = 0; i < exercises.size(); i++) {
-                var ex = exercises[i] as Exercise;
-                menu.addItem(new WatchUi.MenuItem(ex.name, null, i, {}));
+        if (workout != null && workout.blocks != null) {
+            var blocks = workout.blocks;
+            for (var i = 0; i < blocks.size(); i++) {
+                var block = blocks[i] as WorkoutBlock;
+                var blockLabel = block.name;
+                if (blockLabel.length() == 0) {
+                    // Fallback label based on type
+                    if (block.type == BLOCK_EMOM) { blockLabel = "EMOM"; }
+                    else if (block.type == BLOCK_AMRAP) { blockLabel = "AMRAP"; }
+                    else { blockLabel = "Block " + (i + 1).toString(); }
+                }
+                menu.addItem(new WatchUi.MenuItem(blockLabel, null, i, {}));
             }
         }
 
-        return [menu, new WorkoutSummaryDelegate(_engine, _commService)];
+        return menu;
     }
 
 }
