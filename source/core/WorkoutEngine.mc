@@ -18,17 +18,20 @@ class WorkoutEngine {
     private var _resultSerializer as SessionResultSerializer;
     private var _workoutStarted  as Boolean;
     private var _onFinished      as Method or Null;
+    private var _transmitter     as LiveStatusTransmitter;
 
     function initialize(
         timerService     as TimerService,
         samplingEngine   as SamplingEngine,
         eventRecorder    as EventRecorder,
-        persistenceService as PersistenceService
+        persistenceService as PersistenceService,
+        transmitter      as LiveStatusTransmitter
     ) {
         _timerService       = timerService;
         _samplingEngine     = samplingEngine;
         _eventRecorder      = eventRecorder;
         _persistenceService = persistenceService;
+        _transmitter        = transmitter;
         _strategy           = new SequentialStrategy();
         _resultSerializer   = new SessionResultSerializer();
         _workout            = null;
@@ -235,10 +238,12 @@ class WorkoutEngine {
         if (_workout.blocks != null && state.currentBlockIndex < _workout.blocks.size()) {
             state.phase = PHASE_BLOCK_COMPLETE;
             _switchStrategyForCurrentBlock();
+            _transmitter.send(state, _workout);
             System.println("[Engine] Block complete, next block: " + state.currentBlockIndex);
         } else {
             _timerService.stop();
             state.phase = PHASE_FINISHED;
+            _transmitter.send(state, _workout);
             var nowTs = Time.now().value();
             _eventRecorder.record("WorkoutFinished", {
                 "totalSets"       => state.completedSets.size(),
@@ -270,6 +275,7 @@ class WorkoutEngine {
                 "workoutId"   => _workout.id,
                 "workoutName" => _workout.name
             });
+            _transmitter.send(state, _workout);
         }
 
         var nowTs = Time.now().value();
@@ -386,8 +392,14 @@ class WorkoutEngine {
         } else {
             var nextExerciseIndex = result["exerciseIndex"];
             var nextSetIndex      = result["setIndex"];
+            var prevExerciseIndex = state.currentExerciseIndex;
             state.currentExerciseIndex = nextExerciseIndex;
             state.currentSetIndex      = nextSetIndex;
+
+            // Transmit live status on exercise transition
+            if (nextExerciseIndex != prevExerciseIndex) {
+                _transmitter.send(state, _workout);
+            }
 
             // Determine rest duration from BlockSet or Exercise
             var blockSet = getCurrentBlockSet();
@@ -445,6 +457,7 @@ class WorkoutEngine {
             // All exercises in this round done — wait for interval timer
             // Phase stays WORK but user sees remaining interval time
             state.phase = PHASE_REST; // visual: "rest" until interval expires
+            _transmitter.send(state, _workout);
             System.println("[Engine] EMOM round " + state.currentRoundIndex + " exercises done, waiting for interval");
         } else {
             // More exercises in this round
@@ -483,6 +496,7 @@ class WorkoutEngine {
             state.amrapRoundsCompleted = state.amrapRoundsCompleted + 1;
             state.currentSetIndex = 0;
             state.amrapPartialReps = 0;
+            _transmitter.send(state, _workout);
             System.println("[Engine] AMRAP round " + state.amrapRoundsCompleted + " complete");
         } else {
             state.currentSetIndex = result["setIndex"];

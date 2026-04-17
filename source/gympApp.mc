@@ -14,6 +14,7 @@ class gympApp extends Application.AppBase {
     private var _samplingEngine     as SamplingEngine;
     private var _timerService       as TimerService;
     private var _engine             as WorkoutEngine;
+    private var _transmitter        as LiveStatusTransmitter;
     private var _commService        as CompanionCommService;
 
     function initialize() {
@@ -25,11 +26,13 @@ class gympApp extends Application.AppBase {
         _provider           = new RealPhysiologicalProvider();
         _samplingEngine     = new SamplingEngine(_provider, _eventRecorder);
         _timerService       = new TimerService();
+        _transmitter        = new LiveStatusTransmitter(_provider);
         _engine             = new WorkoutEngine(
             _timerService,
             _samplingEngine,
             _eventRecorder,
-            _persistenceService
+            _persistenceService,
+            _transmitter
         );
         _commService        = new CompanionCommService(_engine, _persistenceService);
 
