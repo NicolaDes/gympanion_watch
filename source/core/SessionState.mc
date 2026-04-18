@@ -8,6 +8,8 @@ const PHASE_WORK           = 1;
 const PHASE_REST           = 2;
 const PHASE_FINISHED       = 3;
 const PHASE_BLOCK_COMPLETE = 4;
+const PHASE_PAUSED         = 5;
+const PHASE_EXITED         = 6;
 
 class SessionState {
 
@@ -32,6 +34,7 @@ class SessionState {
     var blockStartTimestamp as Number;  // When the current block started
     var amrapRoundsCompleted as Number;
     var amrapPartialReps as Number;
+    var prePausePhase as Number;       // Phase to restore on resume (WORK or REST)
 
     function initialize(sessionId as String, workoutId as String) {
         self.sessionId = sessionId;
@@ -55,6 +58,7 @@ class SessionState {
         self.blockStartTimestamp = 0;
         self.amrapRoundsCompleted = 0;
         self.amrapPartialReps = 0;
+        self.prePausePhase = PHASE_IDLE;
     }
 
     // Serialize to a Dictionary for Application.Storage
@@ -81,7 +85,8 @@ class SessionState {
             "rst" => self.roundStartTimestamp,
             "bst" => self.blockStartTimestamp,
             "arc" => self.amrapRoundsCompleted,
-            "apr" => self.amrapPartialReps
+            "apr" => self.amrapPartialReps,
+            "ppp" => self.prePausePhase
         };
     }
 
@@ -138,6 +143,9 @@ class SessionState {
         if (bst != null) { state.blockStartTimestamp = bst; }
         if (arc != null) { state.amrapRoundsCompleted = arc; }
         if (apr != null) { state.amrapPartialReps = apr; }
+
+        var ppp = dict["ppp"];
+        if (ppp != null) { state.prePausePhase = ppp; }
 
         if (brs != null && brs instanceof Array) {
             var arr = brs as Array;

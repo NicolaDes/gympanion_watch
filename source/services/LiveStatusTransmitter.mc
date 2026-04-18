@@ -1,6 +1,7 @@
 import Toybox.Communications;
 import Toybox.Lang;
 import Toybox.System;
+import Toybox.Time;
 
 // Builds and transmits a live workout status snapshot to the companion phone app.
 // Fire-and-forget via Communications.transmit() — same pattern as sendSetComplete().
@@ -55,6 +56,9 @@ class LiveStatusTransmitter {
         // Build flattened exercise summary array from workout
         var exerciseSummary = _buildExerciseSummary(workout);
 
+        // Compute session elapsed seconds
+        var sessionElapsedSec = Time.now().value() - state.startTimestamp;
+
         return {
             "type"                 => "liveStatus",
             "exerciseName"         => _resolveExerciseName(state, workout),
@@ -64,6 +68,7 @@ class LiveStatusTransmitter {
             "completedReps"        => completedReps,
             "heartRate"            => hr != null ? hr : -1,
             "phase"                => state.phase,
+            "sessionElapsedSec"    => sessionElapsedSec,
             "workout"              => {
                 "id"        => workout.id,
                 "name"      => workout.name,

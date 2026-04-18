@@ -16,6 +16,7 @@ class gympApp extends Application.AppBase {
     private var _engine             as WorkoutEngine;
     private var _transmitter        as LiveStatusTransmitter;
     private var _commService        as CompanionCommService;
+    private var _heartbeat          as HeartbeatService;
 
     function initialize() {
         AppBase.initialize();
@@ -34,6 +35,8 @@ class gympApp extends Application.AppBase {
             _persistenceService,
             _transmitter
         );
+        _heartbeat          = new HeartbeatService(_transmitter, _engine);
+        _engine.setHeartbeatService(_heartbeat);
         _commService        = new CompanionCommService(_engine, _persistenceService);
 
         System.println("[App] Services initialized");
@@ -81,8 +84,20 @@ class gympApp extends Application.AppBase {
 
     // onStop() is called when the app is exiting. Persist and clean up.
     function onStop(state as Dictionary?) as Void {
+        _heartbeat.stop();
+
+        // Best-effort: send EXITED phase to iOS before shutdown
+        var sessionState = _engine.getCurrentState();
+        var workout = _engine.getWorkout();
+        if (sessionState != null && workout != null
+            && sessionState.phase != PHASE_FINISHED
+            && sessionState.phase != PHASE_IDLE) {
+            sessionState.phase = PHASE_EXITED;
+            _transmitter.send(sessionState, workout);
+        }
+
         _engine.pause();
-        System.println("[App] onStop: session saved, timer stopped");
+        System.println("[App] onStop: EXITED sent, session saved");
     }
 
     // Called by CompanionCommService after a pending workout is accepted.

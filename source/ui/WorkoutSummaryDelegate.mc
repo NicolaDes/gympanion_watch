@@ -24,11 +24,10 @@ class WorkoutSummaryDelegate extends WatchUi.Menu2InputDelegate {
             startBlockIndex = id as Number;
         }
         _engine.startFromBlock(startBlockIndex);
-        WatchUi.pushView(
-            new DashboardView(_engine),
-            new DashboardDelegate(_engine, _commService),
-            WatchUi.SLIDE_UP
-        );
+        var view = new DashboardView(_engine);
+        var delegate = new DashboardDelegate(_engine, _commService);
+        view.setDelegate(delegate);
+        WatchUi.pushView(view, delegate, WatchUi.SLIDE_UP);
     }
 
     // Back on the summary shows the exit confirmation dialog.

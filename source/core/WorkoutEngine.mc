@@ -19,6 +19,7 @@ class WorkoutEngine {
     private var _workoutStarted  as Boolean;
     private var _onFinished      as Method or Null;
     private var _transmitter     as LiveStatusTransmitter;
+    private var _heartbeat      as HeartbeatService or Null;
 
     function initialize(
         timerService     as TimerService,
@@ -38,6 +39,7 @@ class WorkoutEngine {
         _sessionState       = null;
         _workoutStarted     = false;
         _onFinished         = null;
+        _heartbeat          = null;
     }
 
     // Called once at boot with the loaded workout plan.
@@ -49,6 +51,11 @@ class WorkoutEngine {
     // Used by DashboardDelegate to trigger the 3-second auto-return to summary.
     function setOnFinished(callback as Method) as Void {
         _onFinished = callback;
+    }
+
+    // Registers the heartbeat service for pause/resume interval switching.
+    function setHeartbeatService(heartbeat as HeartbeatService) as Void {
+        _heartbeat = heartbeat;
     }
 
     // Starts a fresh session from the given block index.
@@ -89,6 +96,9 @@ class WorkoutEngine {
         }
         // Also normalize BLOCK_COMPLETE to IDLE on restore
         if (_sessionState.phase == PHASE_BLOCK_COMPLETE) {
+            _sessionState.phase = PHASE_IDLE;
+        }
+        if (_sessionState.phase == PHASE_PAUSED) {
             _sessionState.phase = PHASE_IDLE;
         }
         _workoutStarted = (_sessionState.completedSets.size() > 0);
@@ -242,6 +252,9 @@ class WorkoutEngine {
             System.println("[Engine] Block complete, next block: " + state.currentBlockIndex);
         } else {
             _timerService.stop();
+            if (_heartbeat != null) {
+                _heartbeat.stop();
+            }
             state.phase = PHASE_FINISHED;
             _transmitter.send(state, _workout);
             var nowTs = Time.now().value();
@@ -275,7 +288,9 @@ class WorkoutEngine {
                 "workoutId"   => _workout.id,
                 "workoutName" => _workout.name
             });
-            _transmitter.send(state, _workout);
+            if (_heartbeat != null) {
+                _heartbeat.start();
+            }
         }
 
         var nowTs = Time.now().value();
@@ -318,6 +333,7 @@ class WorkoutEngine {
             _timerService.start(method(:onTimerTick), 1000);
         }
 
+        _transmitter.send(state, _workout);
         _persistenceService.saveSession(state);
         WatchUi.requestUpdate();
         System.println("[Engine] startSet -> PHASE_WORK (block type=" + block.type + ")");
@@ -392,14 +408,8 @@ class WorkoutEngine {
         } else {
             var nextExerciseIndex = result["exerciseIndex"];
             var nextSetIndex      = result["setIndex"];
-            var prevExerciseIndex = state.currentExerciseIndex;
             state.currentExerciseIndex = nextExerciseIndex;
             state.currentSetIndex      = nextSetIndex;
-
-            // Transmit live status on exercise transition
-            if (nextExerciseIndex != prevExerciseIndex) {
-                _transmitter.send(state, _workout);
-            }
 
             // Determine rest duration from BlockSet or Exercise
             var blockSet = getCurrentBlockSet();
@@ -422,6 +432,7 @@ class WorkoutEngine {
             _timerService.start(method(:onTimerTick), 1000);
             _persistenceService.saveSession(state);
             System.println("[Engine] completeSequentialSet -> REST, restMs=" + state.restDurationMs);
+            _transmitter.send(state, _workout);
         }
 
         WatchUi.requestUpdate();
@@ -464,6 +475,7 @@ class WorkoutEngine {
             state.currentSetIndex = result["setIndex"];
             _samplingEngine.beginSet();
             System.println("[Engine] EMOM advanced to set " + state.currentSetIndex);
+            _transmitter.send(state, _workout);
         }
 
         _persistenceService.saveSession(state);
@@ -501,6 +513,7 @@ class WorkoutEngine {
         } else {
             state.currentSetIndex = result["setIndex"];
             state.amrapPartialReps = state.amrapPartialReps + 1;
+            _transmitter.send(state, _workout);
         }
 
         _samplingEngine.beginSet();
@@ -523,6 +536,9 @@ class WorkoutEngine {
         _samplingEngine.beginSet();
         _timerService.start(method(:onTimerTick), 1000);
         System.println("[Engine] cancelSet -> PHASE_WORK");
+        if (_workout != null) {
+            _transmitter.send(_sessionState, _workout);
+        }
         WatchUi.requestUpdate();
     }
 
@@ -727,6 +743,9 @@ class WorkoutEngine {
             startNewSession(_workout);
         }
         System.println("[Engine] Session reset -> new session");
+        if (_sessionState != null && _workout != null) {
+            _transmitter.send(_sessionState, _workout);
+        }
         WatchUi.requestUpdate();
     }
 
@@ -737,6 +756,45 @@ class WorkoutEngine {
             _persistenceService.saveSession(_sessionState);
         }
         System.println("[Engine] paused");
+    }
+
+    // Pauses the current session. Saves the active phase so resumeSession()
+    // can restore it. Only valid during WORK or REST phases.
+    function pauseSession() as Void {
+        if (_sessionState == null || _workout == null) { return; }
+        var state = _sessionState;
+
+        // Only pause from active phases
+        if (state.phase != PHASE_WORK && state.phase != PHASE_REST) { return; }
+
+        state.prePausePhase = state.phase;
+        state.phase = PHASE_PAUSED;
+        _timerService.stop();
+        if (_heartbeat != null) {
+            _heartbeat.switchToPausedInterval();
+        }
+        _transmitter.send(state, _workout);
+        _persistenceService.saveSession(state);
+        System.println("[Engine] pauseSession -> PHASE_PAUSED (was " + state.prePausePhase + ")");
+    }
+
+    // Resumes a paused session. Restores the pre-pause phase and restarts the timer.
+    function resumeSession() as Void {
+        if (_sessionState == null || _workout == null) { return; }
+        var state = _sessionState;
+
+        if (state.phase != PHASE_PAUSED) { return; }
+
+        state.phase = state.prePausePhase;
+        state.prePausePhase = PHASE_IDLE;
+        _samplingEngine.beginSet();
+        _timerService.start(method(:onTimerTick), 1000);
+        if (_heartbeat != null) {
+            _heartbeat.switchToActiveInterval();
+        }
+        _transmitter.send(state, _workout);
+        _persistenceService.saveSession(state);
+        System.println("[Engine] resumeSession -> phase " + state.phase);
     }
 
     // Private: fires haptic vibration when rest countdown expires.

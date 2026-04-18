@@ -27,10 +27,18 @@ import Toybox.System;
 class DashboardView extends WatchUi.View {
 
     private var _engine as WorkoutEngine;
+    private var _delegate as DashboardDelegate or Null;
 
     function initialize(engine as WorkoutEngine) {
         View.initialize();
         _engine = engine;
+        _delegate = null;
+    }
+
+    // Wired by WorkoutSummaryDelegate after both view and delegate are constructed.
+    // Used by onUpdate() to query the hold-to-exit progress ring.
+    function setDelegate(d as DashboardDelegate) as Void {
+        _delegate = d;
     }
 
     function onLayout(dc as Graphics.Dc) as Void {
@@ -59,26 +67,31 @@ class DashboardView extends WatchUi.View {
 
         var phase = state.phase;
 
+        // Phase dispatcher — no early returns so the hold overlay below
+        // is drawn on top of every phase.
         if (phase == PHASE_FINISHED) {
             _drawFinishedScreen(dc, state, screenW, screenH, centerX);
-            return;
-        }
-
-        if (phase == PHASE_BLOCK_COMPLETE) {
+        } else if (phase == PHASE_BLOCK_COMPLETE) {
             _drawBlockCompleteScreen(dc, state, workout, screenW, screenH, centerX);
-            return;
+        } else {
+            var block = _engine.getCurrentBlock();
+            if (block != null) {
+                if (block.type == BLOCK_EMOM) {
+                    _drawEmomDashboard(dc, state, block, screenW, screenH, centerX);
+                } else if (block.type == BLOCK_AMRAP) {
+                    _drawAmrapDashboard(dc, state, block, screenW, screenH, centerX);
+                } else {
+                    _drawSequentialDashboard(dc, state, screenW, screenH, centerX);
+                }
+            }
         }
 
-        // Resolve current block
-        var block = _engine.getCurrentBlock();
-        if (block == null) { return; }
-
-        if (block.type == BLOCK_EMOM) {
-            _drawEmomDashboard(dc, state, block, screenW, screenH, centerX);
-        } else if (block.type == BLOCK_AMRAP) {
-            _drawAmrapDashboard(dc, state, block, screenW, screenH, centerX);
-        } else {
-            _drawSequentialDashboard(dc, state, screenW, screenH, centerX);
+        // Hold-to-exit overlay — drawn on top of every phase.
+        if (_delegate != null) {
+            var p = _delegate.getBackHoldProgress();
+            if (p > 0.0) {
+                _drawHoldOverlay(dc, screenW, screenH, centerX, p);
+            }
         }
     }
 
@@ -114,7 +127,8 @@ class DashboardView extends WatchUi.View {
 
         dc.setColor(Graphics.COLOR_LT_GRAY, Graphics.COLOR_TRANSPARENT);
         dc.drawText(centerX, y, Graphics.FONT_XTINY,
-                    "Press START", Graphics.TEXT_JUSTIFY_CENTER);
+                    WatchUi.loadResource(Rez.Strings.blockCompleteHint) as String,
+                    Graphics.TEXT_JUSTIFY_CENTER);
     }
 
     // ── Sequential dashboard (largely unchanged from original) ──────────
@@ -186,6 +200,11 @@ class DashboardView extends WatchUi.View {
         dc.drawText(rightX, y_values, Graphics.FONT_XTINY,
                     targetWeight.format("%.1f") + " kg", Graphics.TEXT_JUSTIFY_CENTER);
         _drawHeartRate(dc, state, centerX, y_values);
+
+        if (state.phase == PHASE_IDLE) {
+            _drawBottomHint(dc, centerX, screenH,
+                WatchUi.loadResource(Rez.Strings.idleStartHint) as String);
+        }
     }
 
     // ── EMOM dashboard ──────────────────────────────────────────────────
@@ -270,6 +289,11 @@ class DashboardView extends WatchUi.View {
                     totalMin.toString() + ":" + totalSecStr, Graphics.TEXT_JUSTIFY_CENTER);
 
         _drawHeartRate(dc, state, centerX, y_values);
+
+        if (state.phase == PHASE_IDLE) {
+            _drawBottomHint(dc, centerX, screenH,
+                WatchUi.loadResource(Rez.Strings.idleStartHint) as String);
+        }
     }
 
     // ── AMRAP dashboard ─────────────────────────────────────────────────
@@ -339,9 +363,53 @@ class DashboardView extends WatchUi.View {
                     targetReps.toString(), Graphics.TEXT_JUSTIFY_CENTER);
 
         _drawHeartRate(dc, state, centerX, y_values);
+
+        if (state.phase == PHASE_IDLE) {
+            _drawBottomHint(dc, centerX, screenH,
+                WatchUi.loadResource(Rez.Strings.idleStartHint) as String);
+        }
     }
 
     // ── Shared helpers ──────────────────────────────────────────────────
+
+    // Draws a small hint line near the bottom of the screen.
+    // Used in IDLE ("Press START to begin") and BLOCK_COMPLETE paths.
+    private function _drawBottomHint(dc as Graphics.Dc, centerX as Number,
+                                      screenH as Number, hintText as String) as Void {
+        var hXtiny = dc.getFontHeight(Graphics.FONT_XTINY);
+        // Position 6 px above the bottom of the safe zone.
+        var y = screenH - hXtiny - 6;
+        dc.setColor(Graphics.COLOR_LT_GRAY, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(centerX, y, Graphics.FONT_XTINY, hintText, Graphics.TEXT_JUSTIFY_CENTER);
+    }
+
+    // When the user is holding BACK, overlay a progress arc + "Exit" label
+    // centred on the screen. progress is 0.0..1.0; 1.0 = 3 s threshold reached.
+    private function _drawHoldOverlay(dc as Graphics.Dc, screenW as Number,
+                                       screenH as Number, centerX as Number,
+                                       progress as Float) as Void {
+        var centerY = screenH / 2;
+        var radius = (screenW < screenH ? screenW : screenH) / 2 - 16;
+
+        // Arc: draws from degreeStart to degreeEnd going clockwise when using
+        // ARC_CLOCKWISE. 12 o'clock is 90°; sweep fills clockwise from there.
+        var sweep = (360.0 * progress).toNumber();
+        var degStart = 90;
+        var degEnd = 90 - sweep;
+        if (degEnd < degStart - 360) { degEnd = degStart - 360; }
+
+        dc.setPenWidth(8);
+        dc.setColor(Graphics.COLOR_RED, Graphics.COLOR_TRANSPARENT);
+        dc.drawArc(centerX, centerY, radius, Graphics.ARC_CLOCKWISE, degStart, degEnd);
+        dc.setPenWidth(1);
+
+        // Centred "Exit" label, medium font.
+        var label = WatchUi.loadResource(Rez.Strings.backHoldExitLabel) as String;
+        var hMed = dc.getFontHeight(Graphics.FONT_MEDIUM);
+        dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(centerX, centerY - hMed / 2, Graphics.FONT_MEDIUM,
+                    label, Graphics.TEXT_JUSTIFY_CENTER);
+    }
 
     private function _drawPhaseBadge(dc as Graphics.Dc, phase as Number,
                                       centerX as Number, y as Number) as Void {

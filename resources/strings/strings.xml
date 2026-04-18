@@ -8,6 +8,9 @@
     <string id="LabelHr">HR</string>
     <string id="LabelWorkoutComplete">Workout Complete</string>
     <string id="exitConfirmMsg">Exit GymPanion?</string>
+    <string id="backHoldExitLabel">Exit</string>
+    <string id="idleStartHint">Press START to begin</string>
+    <string id="blockCompleteHint">Press START for next block</string>
     <string id="LabelStart">Start</string>
     <string id="workoutReplaceConfirmMsg">New workout received. Replace?</string>
 </strings>
