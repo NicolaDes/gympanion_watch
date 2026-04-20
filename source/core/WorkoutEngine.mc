@@ -776,6 +776,7 @@ class WorkoutEngine {
         _transmitter.send(state, _workout);
         _persistenceService.saveSession(state);
         System.println("[Engine] pauseSession -> PHASE_PAUSED (was " + state.prePausePhase + ")");
+        _fireHapticPause();
     }
 
     // Resumes a paused session. Restores the pre-pause phase and restarts the timer.
@@ -795,6 +796,7 @@ class WorkoutEngine {
         _transmitter.send(state, _workout);
         _persistenceService.saveSession(state);
         System.println("[Engine] resumeSession -> phase " + state.phase);
+        _fireHapticResume();
     }
 
     // Private: fires haptic vibration when rest countdown expires.
@@ -808,6 +810,33 @@ class WorkoutEngine {
             Attention.vibrate(vibeData);
         }
         System.println("[Engine] REST ALERT - rest expired");
+    }
+
+    // Private: fires a distinct "pause" haptic — one long medium pulse.
+    // Chosen to be clearly distinct from:
+    //   - rest alert: [(50,250),(0,250),(50,250)] (triple short pulse)
+    //   - resume:     [(75,80),(0,80),(75,80)]    (double short sharp pulse)
+    private function _fireHapticPause() as Void {
+        if (Attention has :vibrate) {
+            var vibeData = [
+                new Attention.VibeProfile(50, 500)
+            ];
+            Attention.vibrate(vibeData);
+        }
+        System.println("[Engine] haptic: pause");
+    }
+
+    // Private: fires a distinct "resume" haptic — two short sharp pulses.
+    private function _fireHapticResume() as Void {
+        if (Attention has :vibrate) {
+            var vibeData = [
+                new Attention.VibeProfile(75,  80),
+                new Attention.VibeProfile(0,   80),
+                new Attention.VibeProfile(75,  80)
+            ];
+            Attention.vibrate(vibeData);
+        }
+        System.println("[Engine] haptic: resume");
     }
 
 }
