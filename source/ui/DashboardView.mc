@@ -114,14 +114,16 @@ class DashboardView extends WatchUi.View {
                     "BLOCK DONE", Graphics.TEXT_JUSTIFY_CENTER);
         y += hLarge + gap;
 
-        // Next block name
+        // Next block name (ellipsized if it would overflow the display)
         var blocks = workout.blocks;
         var nextIdx = state.currentBlockIndex;
         if (blocks != null && nextIdx < blocks.size()) {
             var nextBlock = blocks[nextIdx] as WorkoutBlock;
+            var fullLine = "Next: " + nextBlock.name;
+            var fitted = TextHelper.fitText(dc, fullLine, screenW - 40, Graphics.FONT_SMALL);
             dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
             dc.drawText(centerX, y, Graphics.FONT_SMALL,
-                        "Next: " + nextBlock.name, Graphics.TEXT_JUSTIFY_CENTER);
+                        fitted, Graphics.TEXT_JUSTIFY_CENTER);
         }
         y += hSmall + gap;
 
@@ -159,10 +161,11 @@ class DashboardView extends WatchUi.View {
         var y_labels = y; y += hXtiny + 2;
         var y_values = y;
 
-        // Exercise name
+        // Exercise name (ellipsized if it would overflow the display)
+        var fittedName = TextHelper.fitText(dc, exerciseName, screenW - 40, Graphics.FONT_SMALL);
         dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
         dc.drawText(centerX, y_name, Graphics.FONT_SMALL,
-                    exerciseName, Graphics.TEXT_JUSTIFY_CENTER);
+                    fittedName, Graphics.TEXT_JUSTIFY_CENTER);
 
         // Set indicator
         dc.setColor(Graphics.COLOR_LT_GRAY, Graphics.COLOR_TRANSPARENT);
@@ -235,10 +238,11 @@ class DashboardView extends WatchUi.View {
         var y_labels = y; y += hXtiny + 2;
         var y_values = y;
 
-        // Exercise name
+        // Exercise name (ellipsized if it would overflow the display)
+        var fittedName = TextHelper.fitText(dc, exerciseName, screenW - 40, Graphics.FONT_SMALL);
         dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
         dc.drawText(centerX, y_name, Graphics.FONT_SMALL,
-                    exerciseName, Graphics.TEXT_JUSTIFY_CENTER);
+                    fittedName, Graphics.TEXT_JUSTIFY_CENTER);
 
         // Round indicator
         dc.setColor(Graphics.COLOR_LT_GRAY, Graphics.COLOR_TRANSPARENT);
@@ -322,10 +326,11 @@ class DashboardView extends WatchUi.View {
         var y_labels = y; y += hXtiny + 2;
         var y_values = y;
 
-        // Exercise name
+        // Exercise name (ellipsized if it would overflow the display)
+        var fittedName = TextHelper.fitText(dc, exerciseName, screenW - 40, Graphics.FONT_SMALL);
         dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
         dc.drawText(centerX, y_name, Graphics.FONT_SMALL,
-                    exerciseName, Graphics.TEXT_JUSTIFY_CENTER);
+                    fittedName, Graphics.TEXT_JUSTIFY_CENTER);
 
         // Round indicator
         dc.setColor(Graphics.COLOR_LT_GRAY, Graphics.COLOR_TRANSPARENT);

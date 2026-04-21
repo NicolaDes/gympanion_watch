@@ -19,7 +19,6 @@ class WorkoutEngine {
     private var _workoutStarted  as Boolean;
     private var _onFinished      as Method or Null;
     private var _transmitter     as LiveStatusTransmitter;
-    private var _heartbeat      as HeartbeatService or Null;
 
     function initialize(
         timerService     as TimerService,
@@ -39,7 +38,6 @@ class WorkoutEngine {
         _sessionState       = null;
         _workoutStarted     = false;
         _onFinished         = null;
-        _heartbeat          = null;
     }
 
     // Called once at boot with the loaded workout plan.
@@ -51,11 +49,6 @@ class WorkoutEngine {
     // Used by DashboardDelegate to trigger the 3-second auto-return to summary.
     function setOnFinished(callback as Method) as Void {
         _onFinished = callback;
-    }
-
-    // Registers the heartbeat service for pause/resume interval switching.
-    function setHeartbeatService(heartbeat as HeartbeatService) as Void {
-        _heartbeat = heartbeat;
     }
 
     // Starts a fresh session from the given block index.
@@ -252,9 +245,6 @@ class WorkoutEngine {
             System.println("[Engine] Block complete, next block: " + state.currentBlockIndex);
         } else {
             _timerService.stop();
-            if (_heartbeat != null) {
-                _heartbeat.stop();
-            }
             state.phase = PHASE_FINISHED;
             _transmitter.send(state, _workout);
             var nowTs = Time.now().value();
@@ -288,9 +278,6 @@ class WorkoutEngine {
                 "workoutId"   => _workout.id,
                 "workoutName" => _workout.name
             });
-            if (_heartbeat != null) {
-                _heartbeat.start();
-            }
         }
 
         var nowTs = Time.now().value();
@@ -572,6 +559,12 @@ class WorkoutEngine {
             _onSequentialTick(state);
         }
 
+        // 1 s live-status transmit during active phases only.
+        // _advanceBlock() already transmits on BLOCK_COMPLETE / FINISHED.
+        if (state.phase == PHASE_WORK || state.phase == PHASE_REST) {
+            _transmitter.send(state, _workout);
+        }
+
         WatchUi.requestUpdate();
     }
 
@@ -770,9 +763,6 @@ class WorkoutEngine {
         state.prePausePhase = state.phase;
         state.phase = PHASE_PAUSED;
         _timerService.stop();
-        if (_heartbeat != null) {
-            _heartbeat.switchToPausedInterval();
-        }
         _transmitter.send(state, _workout);
         _persistenceService.saveSession(state);
         System.println("[Engine] pauseSession -> PHASE_PAUSED (was " + state.prePausePhase + ")");
@@ -790,9 +780,6 @@ class WorkoutEngine {
         state.prePausePhase = PHASE_IDLE;
         _samplingEngine.beginSet();
         _timerService.start(method(:onTimerTick), 1000);
-        if (_heartbeat != null) {
-            _heartbeat.switchToActiveInterval();
-        }
         _transmitter.send(state, _workout);
         _persistenceService.saveSession(state);
         System.println("[Engine] resumeSession -> phase " + state.phase);
