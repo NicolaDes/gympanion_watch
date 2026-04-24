@@ -13,4 +13,8 @@
     <string id="blockCompleteHint">Press START for next block</string>
     <string id="LabelStart">Start</string>
     <string id="workoutReplaceConfirmMsg">New workout received. Replace?</string>
+    <string id="storageFullTitle">Storage full</string>
+    <string id="storageFullDeleteOldest">Delete oldest workout</string>
+    <string id="storageFullDontStore">Don't store</string>
+    <string id="storageFullDeleteOldestDisabled">Delete oldest workout (none)</string>
 </strings>

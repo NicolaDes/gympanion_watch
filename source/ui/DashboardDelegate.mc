@@ -29,6 +29,7 @@ class DashboardDelegate extends WatchUi.BehaviorDelegate {
 
     private var _engine      as WorkoutEngine;
     private var _commService as CompanionCommService;
+    private var _buffer      as OutboundBufferService;
     private var _finishTimer as Timer.Timer or Null;
 
     // Hold-to-exit state (BACK button).
@@ -37,10 +38,15 @@ class DashboardDelegate extends WatchUi.BehaviorDelegate {
     private var _backHoldProgress    as Float;
     private var _backLongPressFired  as Boolean;
 
-    function initialize(engine as WorkoutEngine, commService as CompanionCommService) {
+    function initialize(
+        engine as WorkoutEngine,
+        commService as CompanionCommService,
+        buffer as OutboundBufferService
+    ) {
         BehaviorDelegate.initialize();
         _engine      = engine;
         _commService = commService;
+        _buffer      = buffer;
         _finishTimer = null;
 
         _backHoldTimer       = null;
@@ -49,6 +55,7 @@ class DashboardDelegate extends WatchUi.BehaviorDelegate {
         _backLongPressFired  = false;
 
         _engine.setOnFinished(method(:_onWorkoutFinished));
+        _commService.setOnStorageFull(method(:_onStorageFull));
     }
 
     // Read by DashboardView to render the hold-to-exit progress ring.
@@ -160,9 +167,11 @@ class DashboardDelegate extends WatchUi.BehaviorDelegate {
             var targetWeight = _engine.getCurrentTargetWeight();
             var targetReps   = _engine.getCurrentTargetReps();
             var exerciseName = _engine.getCurrentExerciseName();
+            var workout      = _engine.getWorkout();
 
             var payload = {
                 "type"           => "set_complete",
+                "sessionId"      => state.sessionId,
                 "exerciseName"   => exerciseName,
                 "blockIndex"     => state.currentBlockIndex,
                 "exerciseIndex"  => state.currentExerciseIndex,
@@ -178,7 +187,14 @@ class DashboardDelegate extends WatchUi.BehaviorDelegate {
                 payload.put("amrapRound", state.amrapRoundsCompleted);
             }
 
-            _commService.sendSetComplete(payload);
+            var sessionMeta = {
+                "sessionId"   => state.sessionId,
+                "workoutId"   => workout != null ? workout.id : "",
+                "workoutName" => workout != null ? workout.name : "",
+                "startedAt"   => state.startTimestamp
+            };
+
+            _commService.sendSetComplete(payload, sessionMeta);
             _engine.completeSet(targetWeight, targetReps);
             return;
         }
@@ -226,10 +242,17 @@ class DashboardDelegate extends WatchUi.BehaviorDelegate {
     // Called by WorkoutEngine when the workout transitions to PHASE_FINISHED.
     // Transmits session result to phone, then starts auto-pop timer.
     function _onWorkoutFinished() as Void {
-        // Transmit session result to phone
         var resultPayload = _engine.getSessionResultPayload();
-        if (resultPayload != null) {
-            _commService.sendSetComplete(resultPayload);
+        var state = _engine.getCurrentState();
+        var workout = _engine.getWorkout();
+        if (resultPayload != null && state != null && workout != null) {
+            var sessionMeta = {
+                "sessionId"   => state.sessionId,
+                "workoutId"   => workout.id,
+                "workoutName" => workout.name,
+                "startedAt"   => state.startTimestamp
+            };
+            _commService.sendSessionResult(resultPayload, sessionMeta);
         }
 
         _finishTimer = new Timer.Timer();
@@ -241,6 +264,39 @@ class DashboardDelegate extends WatchUi.BehaviorDelegate {
     function _onFinishTimerExpired() as Void {
         _finishTimer = null;
         WatchUi.popView(WatchUi.SLIDE_DOWN);
+    }
+
+    // Invoked by CompanionCommService when the buffer is full and a payload
+    // would be dropped. Pushes the Menu2 popup that lets the user choose
+    // "Delete oldest workout" or "Don't store". The workout engine keeps
+    // ticking while the popup is up (spec §11.3).
+    function _onStorageFull(payload as Dictionary, sessionMeta as Dictionary) as Void {
+        var currentId = sessionMeta["sessionId"] as String;
+        var canDeleteOldest = !_buffer.oldestIsCurrent(currentId);
+
+        var menu = new WatchUi.Menu2({
+            :title => WatchUi.loadResource(Rez.Strings.storageFullTitle) as String
+        });
+
+        var deleteLabel = canDeleteOldest
+            ? (WatchUi.loadResource(Rez.Strings.storageFullDeleteOldest) as String)
+            : (WatchUi.loadResource(Rez.Strings.storageFullDeleteOldestDisabled) as String);
+        var deleteItem = new WatchUi.MenuItem(deleteLabel, null, :deleteOldest, null);
+        if (deleteItem has :setEnabled) {
+            deleteItem.setEnabled(canDeleteOldest);
+        }
+        menu.addItem(deleteItem);
+
+        menu.addItem(new WatchUi.MenuItem(
+            WatchUi.loadResource(Rez.Strings.storageFullDontStore) as String,
+            null, :dontStore, null
+        ));
+
+        WatchUi.pushView(
+            menu,
+            new StorageFullMenuDelegate(_buffer, payload, sessionMeta),
+            WatchUi.SLIDE_UP
+        );
     }
 
 }

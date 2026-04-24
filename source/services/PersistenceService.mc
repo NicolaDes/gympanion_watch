@@ -111,4 +111,43 @@ class PersistenceService {
         System.println("[Persist] Companion workout cleared");
     }
 
+    // ─── Pending-outbound buffer ─────────────────────────────────────────
+
+    private const PENDING_OUTBOUND_KEY       = "pending_outbound";
+    private const PENDING_OUTBOUND_GIVEUP_KEY = "pending_outbound_giveup";
+
+    // Returns the pending-outbound map, or {} if absent / corrupt.
+    function loadPendingOutbound() as Dictionary {
+        var raw = Application.Storage.getValue(PENDING_OUTBOUND_KEY);
+        if (raw == null || !(raw instanceof Dictionary)) {
+            return {};
+        }
+        return raw as Dictionary;
+    }
+
+    // Writes the pending-outbound map. Caller constructs the full dict.
+    function savePendingOutbound(dict as Dictionary) as Void {
+        Application.Storage.setValue(PENDING_OUTBOUND_KEY, dict);
+    }
+
+    // Removes the pending-outbound map entirely.
+    function clearPendingOutbound() as Void {
+        Application.Storage.deleteValue(PENDING_OUTBOUND_KEY);
+        System.println("[Persist] pending_outbound cleared");
+    }
+
+    // Returns the give-up session map, or {} if absent / corrupt.
+    function loadGiveUpSessions() as Dictionary {
+        var raw = Application.Storage.getValue(PENDING_OUTBOUND_GIVEUP_KEY);
+        if (raw == null || !(raw instanceof Dictionary)) {
+            return {};
+        }
+        return raw as Dictionary;
+    }
+
+    // Writes the give-up session map.
+    function saveGiveUpSessions(dict as Dictionary) as Void {
+        Application.Storage.setValue(PENDING_OUTBOUND_GIVEUP_KEY, dict);
+    }
+
 }

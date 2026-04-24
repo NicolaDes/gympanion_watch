@@ -31,39 +31,79 @@ class CompanionCommService {
 
     private var _engine as WorkoutEngine;
     private var _persistenceService as PersistenceService;
-    private var _listener as NoOpConnectionListener;
+    private var _buffer as OutboundBufferService;
+    private var _liveListener as FlushKickingConnectionListener;
+    private var _errorListener as NoOpConnectionListener;  // for error-response sends
     private var _pendingWorkout    as Workout or Null;
     private var _pendingWorkoutDict as Dictionary or Null;
     private var _onWorkoutAccepted as Method or Null;
+    private var _onStorageFull     as Method or Null;
 
-    function initialize(engine as WorkoutEngine, persistenceService as PersistenceService) {
+    function initialize(
+        engine as WorkoutEngine,
+        persistenceService as PersistenceService,
+        buffer as OutboundBufferService
+    ) {
         _engine = engine;
         _persistenceService = persistenceService;
-        _listener = new NoOpConnectionListener();
+        _buffer = buffer;
+        _liveListener = new FlushKickingConnectionListener(buffer);
+        _errorListener = new NoOpConnectionListener();
         _pendingWorkout     = null;
         _pendingWorkoutDict = null;
         _onWorkoutAccepted  = null;
+        _onStorageFull      = null;
     }
 
-    // Sends a fire-and-forget set-complete notification to the companion phone app.
-    // payload is a Dictionary with set metadata (exercise name, set/exercise indices,
-    // duration, target weight/reps). No response is expected.
-    //
-    // When no phone is connected (e.g. simulator without ADB) the payload is
-    // printed to the log instead of transmitted, avoiding the ADB error dialog.
-    function sendSetComplete(payload as Dictionary) as Void {
+    // Registers a callback invoked when the buffer is full and a payload
+    // would be dropped. Callback signature:
+    //   callback(payload as Dictionary, sessionMeta as Dictionary) -> Void
+    // DashboardDelegate uses this to push the StorageFullMenuDelegate view.
+    function setOnStorageFull(callback as Method) as Void {
+        _onStorageFull = callback;
+    }
+
+    // Sends a set_complete notification to the companion phone app.
+    //   payload:     the set_complete dict (must already include sessionId).
+    //   sessionMeta: { sessionId, workoutId, workoutName, startedAt }.
+    // Always attempts to enqueue into OutboundBuffer before live transmit.
+    // If the buffer is full, the onStorageFull callback is invoked to push
+    // the popup; live transmit is still attempted regardless.
+    function sendSetComplete(payload as Dictionary, sessionMeta as Dictionary) as Void {
+        var res = _buffer.enqueue(payload, sessionMeta);
+        if (res == :needsPopup && _onStorageFull != null) {
+            _onStorageFull.invoke(payload, sessionMeta);
+        }
+        if (res == :skippedGiveUp) {
+            // Give-up session: still attempt live transmission but don't buffer.
+        }
+        _transmitLive(payload);
+    }
+
+    // Sends a session_result envelope to the companion phone app. Same
+    // enqueue-then-transmit flow as sendSetComplete.
+    function sendSessionResult(resultPayload as Dictionary, sessionMeta as Dictionary) as Void {
+        var res = _buffer.enqueue(resultPayload, sessionMeta);
+        if (res == :needsPopup && _onStorageFull != null) {
+            _onStorageFull.invoke(resultPayload, sessionMeta);
+        }
+        _transmitLive(resultPayload);
+    }
+
+    // Live-path transmit, shared by sendSetComplete and sendSessionResult.
+    private function _transmitLive(payload as Dictionary) as Void {
         if (!(Communications has :transmit)) {
             System.println("[Comm] transmit not available on this device");
             return;
         }
         if (!System.getDeviceSettings().phoneConnected) {
-            System.println("[Comm] No phone — set_complete payload: " + payload.toString());
+            System.println("[Comm] No phone — payload will be replayed on reconnect: "
+                + payload["type"].toString());
             return;
         }
-        System.println("[Comm] set_complete payload: " + payload.toString());
         try {
-            Communications.transmit(payload, null, _listener);
-            System.println("[Comm] Set complete sent to phone");
+            Communications.transmit(payload, null, _liveListener);
+            System.println("[Comm] live " + payload["type"].toString() + " sent");
         } catch (e instanceof Lang.Exception) {
             System.println("[Comm] transmit failed: " + e.getErrorMessage());
         }
@@ -149,7 +189,7 @@ class CompanionCommService {
             return;
         }
         try {
-            Communications.transmit(payload, null, _listener);
+            Communications.transmit(payload, null, _errorListener);
         } catch (e instanceof Lang.Exception) {
             System.println("[Comm] transmit failed: " + e.getErrorMessage());
         }
@@ -209,7 +249,7 @@ class CompanionCommService {
             return;
         }
         try {
-            Communications.transmit(payload, null, _listener);
+            Communications.transmit(payload, null, _errorListener);
             System.println("[Comm] workout_replace_response sent: accepted=" + accepted.toString());
         } catch (e instanceof Lang.Exception) {
             System.println("[Comm] transmit failed: " + e.getErrorMessage());

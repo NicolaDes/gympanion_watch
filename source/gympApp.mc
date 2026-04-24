@@ -15,6 +15,7 @@ class gympApp extends Application.AppBase {
     private var _timerService       as TimerService;
     private var _engine             as WorkoutEngine;
     private var _transmitter        as LiveStatusTransmitter;
+    private var _outboundBuffer     as OutboundBufferService;
     private var _commService        as CompanionCommService;
 
     function initialize() {
@@ -34,7 +35,10 @@ class gympApp extends Application.AppBase {
             _persistenceService,
             _transmitter
         );
-        _commService        = new CompanionCommService(_engine, _persistenceService);
+
+        _outboundBuffer = new OutboundBufferService(_persistenceService);
+        _commService    = new CompanionCommService(_engine, _persistenceService, _outboundBuffer);
+        _outboundBuffer.setCommService(_commService);
 
         System.println("[App] Services initialized");
     }
@@ -77,6 +81,10 @@ class gympApp extends Application.AppBase {
 
         // Register the summary rebuild callback so CommService can trigger it after accept
         _commService.setOnWorkoutAccepted(method(:onWorkoutAccepted));
+
+        // Kick a flush in case the app was resumed with pending data.
+        _outboundBuffer.pruneOrphanGiveUpEntries();
+        _outboundBuffer.flushIfPossible();
     }
 
     // onStop() is called when the app is exiting. Persist and clean up.
@@ -101,7 +109,7 @@ class gympApp extends Application.AppBase {
     function onWorkoutAccepted() as Void {
         var workout = _engine.getWorkout();
         var menu = _buildSummaryMenu(workout);
-        WatchUi.switchToView(menu, new WorkoutSummaryDelegate(_engine, _commService), WatchUi.SLIDE_IMMEDIATE);
+        WatchUi.switchToView(menu, new WorkoutSummaryDelegate(_engine, _commService, _outboundBuffer), WatchUi.SLIDE_IMMEDIATE);
         System.println("[App] Summary menu rebuilt for new workout");
     }
 
@@ -111,7 +119,7 @@ class gympApp extends Application.AppBase {
     function getInitialView() as [Views] or [Views, InputDelegates] {
         var workout = _engine.getWorkout();
         var menu = _buildSummaryMenu(workout);
-        return [menu, new WorkoutSummaryDelegate(_engine, _commService)];
+        return [menu, new WorkoutSummaryDelegate(_engine, _commService, _outboundBuffer)];
     }
 
     // Builds a Menu2 with "Start" plus one entry per block.

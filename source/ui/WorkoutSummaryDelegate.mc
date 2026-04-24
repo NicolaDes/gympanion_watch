@@ -8,11 +8,17 @@ class WorkoutSummaryDelegate extends WatchUi.Menu2InputDelegate {
 
     private var _engine      as WorkoutEngine;
     private var _commService as CompanionCommService;
+    private var _buffer      as OutboundBufferService;
 
-    function initialize(engine as WorkoutEngine, commService as CompanionCommService) {
+    function initialize(
+        engine as WorkoutEngine,
+        commService as CompanionCommService,
+        buffer as OutboundBufferService
+    ) {
         Menu2InputDelegate.initialize();
         _engine      = engine;
         _commService = commService;
+        _buffer      = buffer;
     }
 
     // Called when the user selects a menu item.
@@ -25,7 +31,7 @@ class WorkoutSummaryDelegate extends WatchUi.Menu2InputDelegate {
         }
         _engine.startFromBlock(startBlockIndex);
         var view = new DashboardView(_engine);
-        var delegate = new DashboardDelegate(_engine, _commService);
+        var delegate = new DashboardDelegate(_engine, _commService, _buffer);
         view.setDelegate(delegate);
         WatchUi.pushView(view, delegate, WatchUi.SLIDE_UP);
     }
